@@ -1,0 +1,185 @@
+---
+title: Quick start
+description: Build a type-safe list + create flow with use-q in five minutes.
+---
+
+import { Steps, Aside } from "@astrojs/starlight/components";
+
+This guide walks through a complete, runnable example: define a small schema, create a client, mount the provider, and use `useQ` / `useM` from a component.
+
+We'll use a fictional API with three resources — `facilities`, `posts`, and `comments` — and a single `facilityId` path parameter. The same example is reused across the docs.
+
+<Steps>
+
+1. **Install the packages**
+
+   ```bash
+   pnpm add @use-q/api-client @use-q/api-client-react @tanstack/react-query react react-dom
+   ```
+
+   See [Installation](/getting-started/installation/) for npm/yarn equivalents and peer deps.
+
+2. **Define a schema**
+
+   Create `src/api/schema.ts`:
+
+   ```ts
+   import type { Schema } from "@use-q/api-client";
+
+   export interface Post {
+     id: string;
+     facilityId: string;
+     title: string;
+     body: string;
+     createdAt: string;
+   }
+
+   export interface CreatePostInput {
+     title: string;
+     body: string;
+   }
+
+   export const schema = {
+     listPosts: {
+       method: "GET",
+       path: "/facilities/{facilityId}/posts",
+       pathParams: {} as { facilityId: string },
+       searchParams: {} as { search?: string },
+       response: {} as Post[],
+       tags: [{ type: "post", facilityId: (p) => p.facilityId }],
+     },
+     getPost: {
+       method: "GET",
+       path: "/facilities/{facilityId}/posts/{postId}",
+       pathParams: {} as { facilityId: string; postId: string },
+       response: {} as Post,
+       tags: [
+         { type: "post", id: (p) => p.postId, facilityId: (p) => p.facilityId },
+       ],
+     },
+     createPost: {
+       method: "POST",
+       path: "/facilities/{facilityId}/posts",
+       pathParams: {} as { facilityId: string },
+       body: {} as CreatePostInput,
+       response: {} as Post,
+       invalidatesTags: [{ type: "post", facilityId: (p) => p.facilityId }],
+     },
+   } as const satisfies Schema;
+   ```
+
+3. **Create the client**
+
+   In `src/api/client.ts`, instantiate the client once and re-export the hooks you'll use across the app:
+
+   ```ts
+   import { createApiClient } from "@use-q/api-client-react";
+   import { schema } from "./schema";
+
+   export const api = createApiClient<typeof schema>(schema, {
+     baseUrl: import.meta.env.VITE_API_BASE_URL ?? "https://api.example.com",
+     defaultHeaders: () => ({
+       Authorization: `Bearer ${localStorage.getItem("token") ?? ""}`,
+     }),
+   });
+
+   export const { useQ, useM, useInfiniteQ, useQClient, queryClient } = api;
+   ```
+
+4. **Wrap your app in `QueryClientProvider`**
+
+   `createApiClient` returns the underlying `queryClient` — use it directly so every hook shares the same cache:
+
+   ```tsx
+   import { StrictMode } from "react";
+   import { createRoot } from "react-dom/client";
+   import { QueryClientProvider } from "@tanstack/react-query";
+   import { api } from "./api/client";
+   import { App } from "./App";
+
+   createRoot(document.getElementById("root")!).render(
+     <StrictMode>
+       <QueryClientProvider client={api.queryClient}>
+         <App />
+       </QueryClientProvider>
+     </StrictMode>,
+   );
+   ```
+
+5. **Read with `useQ`**
+
+   ```tsx
+   import { useQ } from "./api/client";
+
+   export function PostList({ facilityId }: { facilityId: string }) {
+     const { data, isLoading, error } = useQ("listPosts", {
+       pathParams: { facilityId },
+       searchParams: { search: "" },
+     });
+
+     if (isLoading) return <p>Loading posts…</p>;
+     if (error) return <p>Failed to load: {error.message}</p>;
+
+     return (
+       <ul>
+         {data?.map((post) => (
+           <li key={post.id}>{post.title}</li>
+         ))}
+       </ul>
+     );
+   }
+   ```
+
+6. **Write with `useM`**
+
+   ```tsx
+   import { useM } from "./api/client";
+
+   export function NewPostForm({ facilityId }: { facilityId: string }) {
+     const createPost = useM("createPost", { pathParams: { facilityId } });
+
+     return (
+       <form
+         onSubmit={(e) => {
+           e.preventDefault();
+           const form = new FormData(e.currentTarget);
+           createPost.mutate({
+             body: {
+               title: String(form.get("title")),
+               body: String(form.get("body")),
+             },
+           });
+         }}
+       >
+         <input name="title" placeholder="Title" required />
+         <textarea name="body" placeholder="Body" required />
+         <button type="submit" disabled={createPost.isPending}>
+           {createPost.isPending ? "Saving…" : "Publish"}
+         </button>
+       </form>
+     );
+   }
+   ```
+
+   Because `createPost.invalidatesTags` matches `listPosts.tags`, the list refetches automatically once the mutation settles — no manual invalidation required.
+
+</Steps>
+
+## What just happened?
+
+- The `schema` object is the single source of truth. TypeScript infers all path params, search params, body, and response types from it.
+- `createApiClient` built a `QueryClient`, a `TagRegistry`, and a bundle of hooks bound to your schema.
+- `useQ("listPosts", …)` produced a query key of the form `["api", "GET", "/facilities/abc/posts", { search: "" }]` so hierarchical invalidation just works.
+- `useM("createPost", …)` ran the mutation, then asked the registry for every query whose tags matched and invalidated them in `onSettled`.
+
+<Aside type="tip">
+  Want to make the create flow feel instant? Add optimistic updates — see the
+  [Optimistic Updates guide](/guides/optimistic-updates/).
+</Aside>
+
+## Next steps
+
+- [Schema definition](/getting-started/schema-definition/) — a full tour of every `RouteDefinition` field.
+- [`useQ`](/react/use-q/) — every option, including `select`, `enabled`, and `refetchInterval`.
+- [`useM`](/react/use-m/) — optimistic updates and tag chaining.
+- [`useQClient`](/react/use-q-client/) — manual cache control.

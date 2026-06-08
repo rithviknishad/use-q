@@ -1,0 +1,201 @@
+---
+title: Tag invalidation
+description: TagRegistry lifecycle, static vs dynamic tags, schema invalidatesTags, additionalInvalidatesTags, and why invalidation runs in onSettled.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+Tags are the high-level coupling between **reads** and **writes** in a `use-q` app. A read route says "I depend on these tags." A write route says "I invalidate these tags." When the write runs, every matching read refetches.
+
+The whole machine lives inside one `TagRegistry` per `createApiClient` instance.
+
+## The `TagRegistry`
+
+A `TagRegistry` is a tiny `Map<queryKey, ResolvedTag[]>`. Every time `useQ` mounts a query, the registry stores the resolved tags for that key. Every time the query unmounts (with no observers and after `gcTime`), the entry is dropped.
+
+```ts
+// Pseudocode of what happens internally
+useQ("listPosts", { pathParams: { facilityId: "f1" } });
+
+registry.set(
+  ["api", "GET", "/facilities/f1/posts", {}],
+  [{ type: "post", facilityId: "f1" }], // resolved from route.tags
+);
+```
+
+A mutation's `invalidatesTags` are run against this registry to find matching keys, which are then invalidated through TanStack Query's `invalidateQueries`.
+
+## Static vs dynamic tags
+
+A `TagValue` looks like:
+
+```ts
+type TagValue = {
+  type: string;
+  [k: string]: string | number | ((params: ResolvedParams) => string | number);
+};
+```
+
+- **Static** fields are plain values (`string` / `number`).
+- **Dynamic** fields are functions of the resolved request params.
+
+### Static tag
+
+```ts
+listSettings: {
+  // …
+  tags: [{ type: "settings" }],
+}
+
+updateSettings: {
+  // …
+  invalidatesTags: [{ type: "settings" }],
+}
+```
+
+A static tag has _no constraints_ — it matches every cache entry for that route, regardless of params. Use this for genuinely global resources (current user, feature flags, app-wide settings).
+
+### Dynamic tag
+
+```ts
+listPosts: {
+  // …
+  tags: [{ type: "post", facilityId: (p) => p.facilityId }],
+}
+
+createPost: {
+  // …
+  invalidatesTags: [{ type: "post", facilityId: (p) => p.facilityId }],
+}
+```
+
+Now a `createPost` for `facilityId: "f1"` invalidates `listPosts` for `f1` but _not_ for `f2`. That's the most common shape — most resources are scoped to a tenant, facility, or user.
+
+### Mixed shapes
+
+A read route can have multiple tags; so can a write:
+
+```ts
+getPost: {
+  // …
+  tags: [
+    { type: "post", facilityId: (p) => p.facilityId, id: (p) => p.postId },
+    { type: "post", facilityId: (p) => p.facilityId },
+  ],
+}
+```
+
+The query matches any mutation that invalidates any of those tags. A `deletePost` mutation can invalidate both the list and the specific item:
+
+```ts
+deletePost: {
+  // …
+  invalidatesTags: [
+    { type: "post", facilityId: (p) => p.facilityId },
+    { type: "post", facilityId: (p) => p.facilityId, id: (p) => p.postId },
+  ],
+}
+```
+
+## The matching algorithm
+
+A mutation tag `M` matches a query tag `Q` when:
+
+1. `M.type === Q.type`, **and**
+2. For every key in `M` other than `type`: either `Q` doesn't have the key, **or** `M[key] === Q[key]`.
+
+Read as English: "M is at least as broad as Q." A mutation that invalidates `{ type: "post", facilityId: "f1" }` will match:
+
+| Query tag | Matches? | Why |
+| --- | --- | --- |
+| `{ type: "post" }` | yes | Q has no `facilityId` constraint |
+| `{ type: "post", facilityId: "f1" }` | yes | Equal |
+| `{ type: "post", facilityId: "f2" }` | no | `facilityId` mismatch |
+| `{ type: "post", facilityId: "f1", id: "p1" }` | yes | M has no `id` constraint, so Q's extra `id` doesn't disqualify |
+| `{ type: "comment" }` | no | `type` mismatch |
+
+In other words, dynamic tags act as **filters** on the mutation's scope. A bare `{ type: "post" }` invalidation wipes every post-tagged cache; adding `facilityId` narrows it.
+
+## `useM` flow
+
+When you call `mutate(vars)`:
+
+1. **`onMutate`**: optimistic updates are applied. Each `OptimisticTarget` snapshots the previous cache entry.
+2. **The mutation runs** through the fetcher.
+3. **`onError`** (if it fails): restore every snapshot.
+4. **`onSettled`** (always): resolve `invalidatesTags` + `additionalInvalidatesTags` against the current `TagRegistry`, then call `queryClient.invalidateQueries` for each matching query.
+
+Step 4 is the magic. Crucially, invalidation runs in `onSettled` — meaning it runs whether the mutation succeeded or failed. If the mutation failed, the optimistic rollback restored stale data; the invalidation then refetches the truth.
+
+<Aside type="tip">
+  Why `onSettled` and not `onSuccess`? Because retries should refetch too. If
+  a mutation eventually succeeds (after a retry), the invalidation has
+  already happened on the first attempt — at worst you refetch slightly too
+  early, which is correct. Running only on success would skip refetch when
+  the mutation 5xx'd, leaving the optimistic snapshot incorrectly removed.
+</Aside>
+
+## `additionalInvalidatesTags`
+
+The schema's `invalidatesTags` should reflect the route's _direct_ effects. For everything else, append at the call site:
+
+```tsx
+const createPost = useM("createPost", {
+  pathParams: { facilityId },
+  additionalInvalidatesTags: [
+    { type: "feed" },
+    { type: "notification", userId: () => currentUserId },
+  ],
+});
+```
+
+This is the right escape hatch when:
+
+- A page-specific aggregate touches data the schema can't know about.
+- You want to refetch a "view" query (e.g. a dashboard summary) without baking the dependency into every mutation's schema definition.
+
+## Avoiding over-invalidation
+
+The most common bug: a too-broad tag. Symptoms — a single mutation refetches the whole app.
+
+Audit checklist:
+
+- Is every `tags` / `invalidatesTags` entry **as specific as it can be**?
+- Are there static tags that should be dynamic? (e.g. `{ type: "post" }` for a list view that's actually per-facility)
+- Are there orphan tags — types that no mutation invalidates? They're harmless, but probably indicate a missing `invalidatesTags`.
+
+A useful pattern: alias a helper for dynamic tag values to keep them DRY:
+
+```ts
+import type { Schema, TagFn } from "@use-q/api-client";
+
+const facility: TagFn = (p) => p.facilityId;
+
+export const schema = {
+  listPosts: {
+    // …
+    tags: [{ type: "post", facilityId: facility }],
+  },
+  createPost: {
+    // …
+    invalidatesTags: [{ type: "post", facilityId: facility }],
+  },
+} as const satisfies Schema;
+```
+
+## Invalidating manually
+
+`useQClient.invalidateTag` runs the same matching algorithm outside a mutation:
+
+```ts
+const qc = useQClient();
+await qc.invalidateTag({ type: "post", facilityId: "f1" });
+```
+
+See [`useQClient`](/react/use-q-client/) for the full surface.
+
+## Limitations
+
+- Tags are only consulted at invalidation time. They don't influence query keys or refetch on focus.
+- A registry is per-`createApiClient`, so two clients don't see each other's tags (this is usually what you want).
+- Tag matching is exact-string on values. There's no glob/wildcard syntax — use static tags (omit the constraint) for "match-anything" semantics instead.

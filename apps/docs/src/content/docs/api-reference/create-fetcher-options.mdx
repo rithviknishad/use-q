@@ -1,0 +1,219 @@
+---
+title: CreateFetcherOptions
+description: Every option accepted by createFetcher — type, default, and example.
+---
+
+```ts
+function createFetcher<TSchema extends Schema, TParsedError = unknown>(
+  schema: TSchema,
+  options: CreateFetcherOptions<TParsedError>,
+): FetcherInstance<TSchema, TParsedError>;
+
+interface CreateFetcherOptions<TParsedError = unknown> {
+  baseUrl: string;
+  fetchFn?: typeof fetch;
+  defaultHeaders?:
+    | Record<string, string>
+    | (() => Record<string, string> | Promise<Record<string, string>>);
+  parseError?: (
+    res: Response,
+    body: unknown,
+  ) => TParsedError | Promise<TParsedError>;
+  onError?: (
+    err: ApiError<TParsedError>,
+    ctx: ErrorContext,
+  ) => void;
+}
+
+interface ErrorContext {
+  routeName: string;
+  method: string;
+  url: string;
+  status: number; // 0 for network errors
+}
+```
+
+## Fields
+
+### `baseUrl`
+
+| Type | Default | Required |
+| --- | --- | --- |
+| `string` | _none_ | yes |
+
+Prepended to every request path. Trailing slashes are normalized, so both of these work:
+
+```ts
+createFetcher(schema, { baseUrl: "https://api.example.com" });
+createFetcher(schema, { baseUrl: "https://api.example.com/" });
+```
+
+You can include a path prefix:
+
+```ts
+createFetcher(schema, { baseUrl: "https://api.example.com/v1" });
+// Route path "/posts" → "https://api.example.com/v1/posts"
+```
+
+### `fetchFn`
+
+| Type | Default |
+| --- | --- |
+| `typeof fetch` | `globalThis.fetch` |
+
+A custom `fetch` implementation. Common use cases:
+
+```ts
+// Node 16 / Bun / Deno / Workers
+import { fetch as undiciFetch } from "undici";
+createFetcher(schema, { baseUrl: "…", fetchFn: undiciFetch });
+
+// Wrapping with retry middleware
+const wrappedFetch: typeof fetch = async (input, init) => {
+  for (let i = 0; i < 3; i++) {
+    const res = await fetch(input, init);
+    if (res.status < 500) return res;
+  }
+  return fetch(input, init);
+};
+createFetcher(schema, { baseUrl: "…", fetchFn: wrappedFetch });
+```
+
+### `defaultHeaders`
+
+| Type | Default |
+| --- | --- |
+| `Record<string, string>` \| `() => Record<string, string> \| Promise<Record<string, string>>` | `undefined` |
+
+Headers applied to every request. Two shapes:
+
+#### Static
+
+```ts
+createFetcher(schema, {
+  baseUrl: "…",
+  defaultHeaders: {
+    "x-api-version": "2026-01-01",
+    "x-client": "web",
+  },
+});
+```
+
+Resolved once at construction time.
+
+#### Async function
+
+```ts
+createFetcher(schema, {
+  baseUrl: "…",
+  defaultHeaders: async () => ({
+    Authorization: `Bearer ${await getAccessToken()}`,
+    "x-tenant-id": currentTenantId(),
+  }),
+});
+```
+
+Called on every `fetcher.fetch()` invocation, awaited if it returns a Promise. Useful for token refresh.
+
+Per-call `headers` always win over `defaultHeaders`:
+
+```ts
+fetcher.fetch("getPost", {
+  pathParams: { facilityId, postId },
+  headers: { "x-debug": "1" }, // merged with / overrides defaults
+});
+```
+
+### `parseError`
+
+| Type | Default |
+| --- | --- |
+| `(res: Response, body: unknown) => TParsedError \| Promise<TParsedError>` | uses raw body as `parsed` |
+
+Runs for any non-2xx response. Receives the raw `Response` and parsed JSON body (or `null` if the body isn't JSON). Return the parsed-error shape you want to expose on `ApiError.parsed`:
+
+```ts
+interface ApiProblem {
+  type: string;
+  title: string;
+  detail: string;
+}
+
+createFetcher<typeof schema, ApiProblem>(schema, {
+  baseUrl: "…",
+  parseError: async (res) => {
+    const body = (await res.json().catch(() => null)) as ApiProblem | null;
+    return body ?? { type: "about:blank", title: res.statusText, detail: "" };
+  },
+});
+```
+
+Without `parseError`, `ApiError.parsed` is the raw JSON body (typed as `unknown`).
+
+### `onError`
+
+| Type | Default |
+| --- | --- |
+| `(err: ApiError<TParsedError>, ctx: ErrorContext) => void` | `undefined` |
+
+A side-effecting hook fired for every failure (HTTP error _or_ network error). Use it for telemetry and cross-cutting auth:
+
+```ts
+import { isApiError } from "@use-q/api-client";
+import * as Sentry from "@sentry/browser";
+
+createFetcher(schema, {
+  baseUrl: "…",
+  onError: (err, ctx) => {
+    if (err.status === 401) {
+      tokenStore.clear();
+      window.location.assign("/login");
+      return;
+    }
+    Sentry.captureException(err, {
+      tags: {
+        route: ctx.routeName,
+        method: ctx.method,
+        status: String(ctx.status),
+      },
+      extra: { url: ctx.url },
+    });
+  },
+});
+```
+
+`ErrorContext.status` is `0` for network errors (no response received).
+
+`onError` is fire-and-forget — its return value is ignored and exceptions thrown inside it are swallowed.
+
+## Type parameters
+
+```ts
+createFetcher<TSchema, TParsedError = unknown>(schema, options);
+```
+
+- **`TSchema`** is the schema type. Pass it as `typeof schema` to get full inference at call sites.
+- **`TParsedError`** is the shape returned by `parseError`. Default: `unknown` (the raw body).
+
+```ts
+createFetcher<typeof schema, ApiProblem>(schema, {
+  baseUrl: "…",
+  parseError: async (res) => /* … */,
+});
+```
+
+## Returned shape
+
+```ts
+interface FetcherInstance<TSchema extends Schema, TParsedError = unknown> {
+  fetch<TRoute extends RouteKey<TSchema>>(
+    routeName: TRoute,
+    options: RouteParams<TSchema, TRoute> & {
+      headers?: Record<string, string>;
+      signal?: AbortSignal;
+    },
+  ): Promise<RouteResponse<TSchema, TRoute>>;
+}
+```
+
+See [`createFetcher`](/core/create-fetcher/) for usage recipes.

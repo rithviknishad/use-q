@@ -1,0 +1,234 @@
+---
+title: SSR & loaders
+description: Use the raw fetcher in React Router, TanStack Router, Next.js server components, and server actions — and hydrate into the client cache.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+`use-q`'s framework-agnostic core (`createFetcher`) shines on the server. You can pre-fetch data anywhere — route loaders, RSC, server actions, edge workers — and seamlessly hand it to the client cache.
+
+## The pattern, in one picture
+
+```
+┌──── server ────┐               ┌──── client ────┐
+│ createFetcher  │  → response → │ setQueryData / │
+│   .fetch(…)    │               │  HydrationBound│
+└────────────────┘               │  /initialData  │
+                                  └────────────────┘
+```
+
+Two things are happening:
+
+1. **Pre-fetch on the server** with a fetcher built from the same schema. No React, no `QueryClient`.
+2. **Inject into the client cache** using one of three techniques: `setQueryData`, `HydrationBoundary`, or `initialData`.
+
+## React Router v6 data loader
+
+```ts
+// src/api/server.ts
+import { createFetcher } from "@use-q/api-client";
+import { schema } from "./schema";
+
+export const serverFetcher = createFetcher<typeof schema>(schema, {
+  baseUrl: import.meta.env.VITE_API_BASE_URL,
+});
+```
+
+```ts
+// src/routes/posts.ts
+import type { LoaderFunctionArgs } from "react-router-dom";
+import { serverFetcher } from "@/api/server";
+
+export async function postsLoader({ params, request }: LoaderFunctionArgs) {
+  return serverFetcher.fetch("listPosts", {
+    pathParams: { facilityId: params.facilityId! },
+    signal: request.signal,
+  });
+}
+```
+
+```tsx
+// src/routes/PostsPage.tsx
+import { useLoaderData } from "react-router-dom";
+import { useQ } from "@/api/client";
+
+export function PostsPage() {
+  const loaderPosts = useLoaderData() as Awaited<
+    ReturnType<typeof postsLoader>
+  >;
+  const facilityId = "f1"; // ← from route params
+
+  const { data } = useQ("listPosts", {
+    pathParams: { facilityId },
+    initialData: () => loaderPosts,
+  });
+
+  return data?.map((p) => <article key={p.id}>{p.title}</article>);
+}
+```
+
+`initialData` hydrates the cache without making an extra network round-trip. The component renders synchronously on the first paint.
+
+<Aside type="caution">
+  Make sure the loader-fetched params **match** the `useQ` params. If the
+  cache key differs (e.g. the loader fetched without `searchParams`, but the
+  hook calls with `{ search: "" }`), TanStack Query sees a different key and
+  fires a new fetch.
+</Aside>
+
+## TanStack Router loader
+
+```ts
+// routeTree.gen.ts (concept)
+import { createFileRoute } from "@tanstack/react-router";
+import { serverFetcher } from "@/api/server";
+import { api } from "@/api/client";
+
+export const Route = createFileRoute("/posts/$facilityId")({
+  loader: async ({ params, abortController }) => {
+    const data = await serverFetcher.fetch("listPosts", {
+      pathParams: { facilityId: params.facilityId },
+      signal: abortController.signal,
+    });
+
+    // Hydrate directly into the client cache
+    api.queryClient.setQueryData(
+      api.queryKeys.listPosts({
+        pathParams: { facilityId: params.facilityId },
+      }),
+      data,
+    );
+
+    return data;
+  },
+});
+```
+
+`setQueryData` is the imperative cousin of `initialData` — same effect, just at a different point in the lifecycle.
+
+## Next.js server components
+
+In RSC, the recommended pattern is `HydrationBoundary` + `dehydrate`:
+
+```tsx
+// app/posts/[facilityId]/page.tsx
+import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
+import { api } from "@/api/client";
+import { PostsClient } from "./PostsClient";
+
+export default async function Page({
+  params: { facilityId },
+}: {
+  params: { facilityId: string };
+}) {
+  await api.queryClient.prefetchQuery({
+    queryKey: api.queryKeys.listPosts({ pathParams: { facilityId } }),
+    queryFn: ({ signal }) =>
+      api.fetcher.fetch("listPosts", {
+        pathParams: { facilityId },
+        signal,
+      }),
+  });
+
+  return (
+    <HydrationBoundary state={dehydrate(api.queryClient)}>
+      <PostsClient facilityId={facilityId} />
+    </HydrationBoundary>
+  );
+}
+```
+
+```tsx
+// app/posts/[facilityId]/PostsClient.tsx
+"use client";
+
+import { useQ } from "@/api/client";
+
+export function PostsClient({ facilityId }: { facilityId: string }) {
+  const { data } = useQ("listPosts", { pathParams: { facilityId } });
+  return data?.map((p) => <article key={p.id}>{p.title}</article>);
+}
+```
+
+The client component picks up the dehydrated state from `<HydrationBoundary>` and renders synchronously — no flash of loading.
+
+### Per-request fetcher
+
+Server components must isolate per-request state. Build a fresh fetcher per render so cookies and auth headers don't leak between requests:
+
+```ts
+// app/lib/server-fetcher.ts
+import { createFetcher } from "@use-q/api-client";
+import { cookies } from "next/headers";
+import { schema } from "@/api/schema";
+
+export function getServerFetcher() {
+  return createFetcher<typeof schema>(schema, {
+    baseUrl: process.env.API_BASE_URL!,
+    defaultHeaders: () => ({
+      Authorization: `Bearer ${cookies().get("token")?.value ?? ""}`,
+    }),
+  });
+}
+```
+
+Call `getServerFetcher()` at the top of each server component. Don't capture it in a module-level constant — that's the leakage trap.
+
+## Server actions
+
+```ts
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { getServerFetcher } from "@/app/lib/server-fetcher";
+
+export async function createPostAction(facilityId: string, formData: FormData) {
+  const post = await getServerFetcher().fetch("createPost", {
+    pathParams: { facilityId },
+    body: {
+      title: String(formData.get("title")),
+      body: String(formData.get("body")),
+    },
+  });
+  revalidatePath(`/posts/${facilityId}`);
+  return post;
+}
+```
+
+## Edge workers
+
+`createFetcher` runs on any runtime with `fetch`. In a Cloudflare Worker:
+
+```ts
+import { createFetcher } from "@use-q/api-client";
+import { schema } from "./schema";
+
+export default {
+  async fetch(req: Request, env: Env) {
+    const fetcher = createFetcher<typeof schema>(schema, {
+      baseUrl: env.API_BASE_URL,
+      fetchFn: fetch,
+      defaultHeaders: { "x-internal": env.INTERNAL_KEY },
+    });
+
+    const posts = await fetcher.fetch("listPosts", {
+      pathParams: { facilityId: new URL(req.url).searchParams.get("f")! },
+    });
+    return Response.json(posts);
+  },
+} satisfies ExportedHandler<Env>;
+```
+
+## When to use which hydration technique
+
+| Technique | When | Pros | Cons |
+| --- | --- | --- | --- |
+| `initialData` (per hook) | One-off pages, React Router / Vite SPAs | Simple; explicit; no dependency on `<HydrationBoundary>` | Have to pass params through to the component |
+| `setQueryData` (in loader / action) | Imperative wiring, mixed-source loaders | Total control | Easy to mismatch the key |
+| `dehydrate` + `HydrationBoundary` | Next.js app router, multiple queries per page | One declaration covers an entire subtree | Requires a `QueryClient` on the server |
+
+## Tips
+
+- **Reuse the schema, not the client.** The server should construct its own fetcher per request (or per worker invocation) to avoid leaking auth state.
+- **Match query keys exactly.** Use `api.queryKeys.<route>(params)` to build keys both server-side and client-side — same function, same shape.
+- **Don't ship the React layer to the server bundle.** `@use-q/api-client` has zero React dependency. Keep server-only code in a file that doesn't transitively import `@use-q/api-client-react`.

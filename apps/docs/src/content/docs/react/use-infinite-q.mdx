@@ -1,0 +1,232 @@
+---
+title: useInfiniteQ
+description: Infinite/paginated queries with schema-driven pageParam, getNextPageParam, and aggregated pages.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+`useInfiniteQ` is `useQ`'s big sibling for paginated routes. It only accepts routes whose `RouteDefinition` declares a `pagination` block — TypeScript prevents you from calling it on a non-paginated route.
+
+## A paginated route
+
+```ts
+// src/api/schema.ts
+import type { Schema } from "@use-q/api-client";
+
+export const schema = {
+  listPosts: {
+    method: "GET",
+    path: "/facilities/{facilityId}/posts",
+    pathParams: {} as { facilityId: string },
+    searchParams: {} as { page?: number; limit?: number; search?: string },
+    response: {} as { items: Post[]; total: number },
+    pagination: {
+      kind: "page-number",
+      pageParam: "page",
+      itemsField: "items",
+      totalField: "total",
+    },
+    tags: [{ type: "post", facilityId: (p) => p.facilityId }],
+  },
+} as const satisfies Schema;
+```
+
+The `pagination` block tells `useInfiniteQ` two things:
+
+1. Which `searchParams` key is the cursor (`pageParam` or `cursorParam`).
+2. How to find items + total/next-cursor in the response.
+
+## Using it
+
+```tsx
+import { useInfiniteQ } from "@/api/client";
+
+function PostList({ facilityId }: { facilityId: string }) {
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+  } = useInfiniteQ("listPosts", {
+    pathParams: { facilityId },
+    searchParams: { limit: 20 },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) => {
+      const fetched = allPages.reduce((sum, p) => sum + p.items.length, 0);
+      return fetched < lastPage.total ? allPages.length + 1 : undefined;
+    },
+  });
+
+  if (isLoading) return <p>Loading…</p>;
+
+  return (
+    <>
+      {data?.pages.flatMap((page) =>
+        page.items.map((post) => <article key={post.id}>{post.title}</article>),
+      )}
+      {hasNextPage && (
+        <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+          {isFetchingNextPage ? "Loading more…" : "Load more"}
+        </button>
+      )}
+    </>
+  );
+}
+```
+
+`use-q` injects the current page param into the schema's `pageParam` key on every fetch. You can read it inside `getNextPageParam` or `select` if you need.
+
+## Cursor pagination
+
+```ts
+listFeed: {
+  method: "GET",
+  path: "/feed",
+  searchParams: {} as { cursor?: string; limit?: number },
+  response: {} as { items: Post[]; nextCursor: string | null },
+  pagination: {
+    kind: "cursor",
+    cursorParam: "cursor",
+    itemsField: "items",
+    nextCursorField: "nextCursor",
+  },
+}
+```
+
+```tsx
+const feed = useInfiniteQ("listFeed", {
+  searchParams: { limit: 25 },
+  initialPageParam: null as string | null,
+  getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+});
+```
+
+When `getNextPageParam` returns `undefined`, `hasNextPage` becomes `false`.
+
+## `pages` aggregation
+
+`data.pages` is an array of raw responses (one per fetched page). To render a flat list, `.flatMap` through them:
+
+```tsx
+{data?.pages.flatMap((p) => p.items).map((post) => (
+  <article key={post.id}>{post.title}</article>
+))}
+```
+
+If you'd rather expose a derived shape to the component, use `select`:
+
+```tsx
+const posts = useInfiniteQ("listPosts", {
+  pathParams: { facilityId },
+  initialPageParam: 1,
+  getNextPageParam: (last, all) =>
+    all.flatMap((p) => p.items).length < last.total ? all.length + 1 : undefined,
+  select: (data) => ({
+    posts: data.pages.flatMap((p) => p.items),
+    total: data.pages[0]?.total ?? 0,
+  }),
+});
+
+posts.data?.posts; // Post[]
+posts.data?.total; // number
+```
+
+## Scroll-trigger pattern
+
+A common UX: load more whenever a sentinel scrolls into view. Combine with `IntersectionObserver`:
+
+```tsx
+import { useEffect, useRef } from "react";
+
+function PostList({ facilityId }: { facilityId: string }) {
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQ("listPosts", {
+    pathParams: { facilityId },
+    initialPageParam: 1,
+    getNextPageParam: (last, all) =>
+      all.reduce((s, p) => s + p.items.length, 0) < last.total
+        ? all.length + 1
+        : undefined,
+  });
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasNextPage) return;
+    const obs = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting && !isFetchingNextPage) {
+        void fetchNextPage();
+      }
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  return (
+    <>
+      {data?.pages.flatMap((p) =>
+        p.items.map((post) => <article key={post.id}>{post.title}</article>),
+      )}
+      <div ref={sentinelRef} aria-hidden style={{ height: 1 }} />
+    </>
+  );
+}
+```
+
+## Options
+
+`useInfiniteQ` accepts everything `useQ` does, plus:
+
+```ts
+interface UseInfiniteQOptions<TData, TPageParam> {
+  initialPageParam: TPageParam;
+  getNextPageParam: (
+    lastPage: TData,
+    allPages: TData[],
+    lastPageParam: TPageParam,
+    allPageParams: TPageParam[],
+  ) => TPageParam | undefined | null;
+  getPreviousPageParam?: (
+    firstPage: TData,
+    allPages: TData[],
+    firstPageParam: TPageParam,
+    allPageParams: TPageParam[],
+  ) => TPageParam | undefined | null;
+  maxPages?: number;
+}
+```
+
+### `maxPages`
+
+Cap how many pages stay in memory; useful for very long lists where dropping older pages is OK:
+
+```tsx
+useInfiniteQ("listFeed", {
+  initialPageParam: null,
+  getNextPageParam: (l) => l.nextCursor ?? undefined,
+  maxPages: 10,
+});
+```
+
+## Type-only guard
+
+The hook's first argument is constrained to routes with a `pagination` block. Misuse fails at compile time:
+
+```ts
+useInfiniteQ("getPost", {
+  // ^^^^^^^^^ Type '"getPost"' is not assignable to type 'PaginatedRouteKey<…>'
+  pathParams: { facilityId, postId },
+});
+```
+
+<Aside type="tip">
+  Want suspense semantics? Wrap your component in `<Suspense>` and use
+  `useSuspenseInfiniteQuery` from TanStack Query directly on `api.queryClient`
+  — `useInfiniteQ` follows the standard (non-suspense) shape so the
+  loading/error UI lives inside the component.
+</Aside>

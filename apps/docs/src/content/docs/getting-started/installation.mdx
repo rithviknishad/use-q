@@ -1,0 +1,115 @@
+---
+title: Installation
+description: Install use-q and its React bindings with pnpm, npm, or yarn.
+---
+
+import { Tabs, TabItem, Aside } from "@astrojs/starlight/components";
+
+`use-q` ships as two installable packages plus an optional codegen CLI:
+
+| Package | What it provides |
+| --- | --- |
+| `@use-q/api-client` | Framework-agnostic `createFetcher` + types. Zero runtime dependencies. |
+| `@use-q/api-client-react` | `createApiClient` and hooks (`useQ`, `useM`, …) on top of TanStack Query v5. |
+| `use-q-codegen` (bin) | OpenAPI → `RouteDefinition` map generator, distributed inside `@use-q/api-client`. |
+
+## Requirements
+
+- **Node.js 18 or newer.** `use-q` relies on global `fetch` and `AbortController`.
+- For the React layer: **React 18+** and **`@tanstack/react-query` 5.x**.
+
+## Install
+
+<Tabs syncKey="pkg">
+  <TabItem label="pnpm">
+
+```bash
+# Core only — server scripts, edge workers, RSC, loaders
+pnpm add @use-q/api-client
+
+# Plus the React bindings
+pnpm add @use-q/api-client @use-q/api-client-react @tanstack/react-query react react-dom
+```
+
+  </TabItem>
+  <TabItem label="npm">
+
+```bash
+npm install @use-q/api-client
+
+npm install @use-q/api-client @use-q/api-client-react @tanstack/react-query react react-dom
+```
+
+  </TabItem>
+  <TabItem label="yarn">
+
+```bash
+yarn add @use-q/api-client
+
+yarn add @use-q/api-client @use-q/api-client-react @tanstack/react-query react react-dom
+```
+
+  </TabItem>
+</Tabs>
+
+## Peer dependencies
+
+`@use-q/api-client-react` declares peer dependencies that you must install in your app:
+
+```json
+{
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.0.0",
+    "react": "^18.0.0 || ^19.0.0"
+  }
+}
+```
+
+<Aside type="tip">
+  If you're already using TanStack Query elsewhere in your app, you can share a
+  single `QueryClient` across both — see
+  [Bring your own QueryClient](/guides/byo-query-client/).
+</Aside>
+
+## TypeScript
+
+`use-q` is written in strict TypeScript with `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess`. To get the best inference, enable strict mode in your `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "moduleResolution": "bundler",
+    "target": "ES2020"
+  }
+}
+```
+
+## Verifying the install
+
+After installing, you should be able to import from each package without type errors:
+
+```ts
+import { createFetcher, isApiError } from "@use-q/api-client";
+import { createApiClient, ApiErrorBoundary } from "@use-q/api-client-react";
+```
+
+## Running the codegen CLI
+
+`use-q-codegen` is shipped as a bin from `@use-q/api-client`, so you can run it without a separate install:
+
+```bash
+pnpm exec use-q-codegen --input ./openapi.json --output ./src/api/schema.ts
+```
+
+Or with npm:
+
+```bash
+npx use-q-codegen --input ./openapi.json --output ./src/api/schema.ts
+```
+
+See [Codegen](/core/codegen/) for a full walkthrough.
+
+## Next
+
+Once everything's installed, head to the [Quick Start](/getting-started/quick-start/) for a 5-minute end-to-end example.
