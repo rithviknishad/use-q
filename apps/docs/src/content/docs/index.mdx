@@ -14,7 +14,7 @@ hero:
       icon: external
 ---
 
-import { Card, CardGrid } from "@astrojs/starlight/components";
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 
 ## Why use-q?
 
@@ -104,16 +104,24 @@ That's it — list refetches automatically after the mutation thanks to schema-d
 ## Where to next?
 
 <CardGrid>
-  <Card title="Install" icon="download">
-    [Install `@use-q/api-client` and the React layer](/getting-started/installation/)
-  </Card>
-  <Card title="5-minute quick start" icon="rocket">
-    [Build a typed list+create flow](/getting-started/quick-start/)
-  </Card>
-  <Card title="Define a schema" icon="document">
-    [Anatomy of a `RouteDefinition`](/getting-started/schema-definition/)
-  </Card>
-  <Card title="API reference" icon="open-book">
-    [Browse every option and hook](/api-reference/route-definition/)
-  </Card>
+  <LinkCard
+    title="Install"
+    href="/getting-started/installation/"
+    description="Install <code>@use-q/api-client</code> and the React layer"
+  />
+  <LinkCard
+    title="5-minute quick start"
+    href="/getting-started/quick-start/"
+    description="Build a typed list+create flow"
+  />
+  <LinkCard
+    title="Define a schema"
+    href="/getting-started/schema-definition/"
+    description="Anatomy of a <code>RouteDefinition</code>"
+  />
+  <LinkCard
+    title="API reference"
+    href="/api-reference/route-definition/"
+    description="Browse every option and hook"
+  />
 </CardGrid>

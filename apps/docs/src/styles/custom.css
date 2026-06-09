@@ -1,34 +1,369 @@
-/* Brand palette for use-q docs */
+/* ----------------------------------------------------------------------------
+ * use-q docs theme — mirrors the careui design system
+ *
+ *   careui tokens sourced from:
+ *     /Users/rithviknishad/ohc.network/careui/src/index.css
+ *
+ *   Primary palette: Tailwind `emerald`
+ *   Surface palette: Tailwind `neutral`
+ *   Font stack:      Figtree Variable (sans) · Geist Mono Variable (mono)
+ *   Radius:          0.625rem
+ * ----------------------------------------------------------------------------
+ */
+
+@import "@fontsource-variable/figtree";
+@import "@fontsource-variable/geist-mono";
+
+/* ── Defaults shared across both themes ───────────────────────────────────── */
+:root,
+::backdrop {
+  --sl-font:
+    "Figtree Variable", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --sl-font-mono:
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* careui --radius */
+  --careui-radius: 0.625rem;
+  --careui-radius-sm: calc(var(--careui-radius) - 4px);
+  --careui-radius-md: calc(var(--careui-radius) - 2px);
+  --careui-radius-lg: var(--careui-radius);
+  --careui-radius-xl: calc(var(--careui-radius) + 4px);
+
+  /* careui emerald palette (used by accent + chart tokens) */
+  --careui-emerald-50: #ecfdf5;
+  --careui-emerald-100: #d1fae5;
+  --careui-emerald-200: #a7f3d0;
+  --careui-emerald-300: #6ee7b7;
+  --careui-emerald-400: #34d399;
+  --careui-emerald-500: #10b981;
+  --careui-emerald-600: #059669;
+  --careui-emerald-700: #047857;
+  --careui-emerald-800: #065f46;
+  --careui-emerald-900: #064e3b;
+  --careui-emerald-950: #022c22;
+}
+
+/* ── Dark theme (default) ─────────────────────────────────────────────────── */
 :root {
-  --sl-color-accent-low: #1e3a5f;
-  --sl-color-accent: #3b82f6;
-  --sl-color-accent-high: #93c5fd;
+  /* careui neutrals (dark mode) */
+  --sl-color-white: #fafafa;
+  --sl-color-gray-1: #f5f5f5;
+  --sl-color-gray-2: #e5e5e5;
+  --sl-color-gray-3: #a3a3a3;
+  --sl-color-gray-4: #525252;
+  --sl-color-gray-5: #262626;
+  --sl-color-gray-6: #171717;
+  --sl-color-black: #0a0a0a;
+
+  /* Primary: emerald-400 on dark (matches careui --primary) */
+  --sl-color-accent-low: var(--careui-emerald-950);
+  --sl-color-accent: var(--careui-emerald-400);
+  --sl-color-accent-high: var(--careui-emerald-200);
+
+  --sl-color-text: var(--sl-color-gray-1);
+  --sl-color-text-accent: var(--careui-emerald-300);
+  --sl-color-text-invert: var(--careui-emerald-950);
+
+  --sl-color-bg: var(--sl-color-black);
+  --sl-color-bg-nav: var(--sl-color-gray-6);
+  --sl-color-bg-sidebar: var(--sl-color-gray-6);
+  --sl-color-bg-inline-code: var(--sl-color-gray-5);
+  --sl-color-bg-accent: var(--careui-emerald-400);
+
+  --sl-color-hairline-light: rgba(255, 255, 255, 0.09);
+  --sl-color-hairline: rgba(255, 255, 255, 0.06);
+  --sl-color-hairline-shade: rgba(255, 255, 255, 0.03);
+
+  --sl-color-backdrop-overlay: hsla(0, 0%, 4%, 0.66);
+
+  /* careui shadows are soft and tight */
+  --sl-shadow-sm:
+    0 1px 1px rgba(0, 0, 0, 0.18),
+    0 2px 1px rgba(0, 0, 0, 0.3);
+  --sl-shadow-md:
+    0 8px 4px rgba(0, 0, 0, 0.08),
+    0 5px 2px rgba(0, 0, 0, 0.08),
+    0 3px 2px rgba(0, 0, 0, 0.12),
+    0 1px 1px rgba(0, 0, 0, 0.15);
+  --sl-shadow-lg:
+    0 25px 7px rgba(0, 0, 0, 0.03),
+    0 16px 6px rgba(0, 0, 0, 0.1),
+    0 9px 5px rgba(10, 10, 10, 0.33),
+    0 4px 4px rgba(0, 0, 0, 0.55);
 }
 
-:root[data-theme="light"] {
-  --sl-color-accent-low: #dbeafe;
-  --sl-color-accent: #2563eb;
-  --sl-color-accent-high: #1e3a8a;
+/* ── Light theme ──────────────────────────────────────────────────────────── */
+:root[data-theme="light"],
+[data-theme="light"] ::backdrop {
+  /* careui neutrals (light mode), inverted for Starlight's scale convention */
+  --sl-color-white: #0a0a0a;
+  --sl-color-gray-1: #171717;
+  --sl-color-gray-2: #262626;
+  --sl-color-gray-3: #404040;
+  --sl-color-gray-4: #525252;
+  --sl-color-gray-5: #a3a3a3;
+  --sl-color-gray-6: #e5e5e5;
+  --sl-color-gray-7: #f5f5f5;
+  --sl-color-black: #ffffff;
+
+  /* Primary: emerald-800 on light (matches careui --primary) */
+  --sl-color-accent-low: var(--careui-emerald-100);
+  --sl-color-accent: var(--careui-emerald-700);
+  --sl-color-accent-high: var(--careui-emerald-900);
+
+  --sl-color-text-accent: var(--careui-emerald-800);
+  --sl-color-text-invert: var(--sl-color-black);
+
+  --sl-color-bg-nav: #fafafa;
+  --sl-color-bg-sidebar: #f5f5f5;
+  --sl-color-bg-inline-code: #f5f5f5;
+  --sl-color-bg-accent: var(--careui-emerald-700);
+
+  --sl-color-hairline-light: #e5e5e5;
+  --sl-color-hairline: #e5e5e5;
+  --sl-color-hairline-shade: #f0f0f0;
+
+  --sl-color-backdrop-overlay: hsla(0, 0%, 25%, 0.55);
+
+  --sl-shadow-sm:
+    0 1px 1px rgba(0, 0, 0, 0.04),
+    0 2px 1px rgba(0, 0, 0, 0.04);
+  --sl-shadow-md:
+    0 8px 4px rgba(0, 0, 0, 0.025),
+    0 5px 2px rgba(0, 0, 0, 0.025),
+    0 3px 2px rgba(0, 0, 0, 0.04),
+    0 1px 1px rgba(0, 0, 0, 0.04);
+  --sl-shadow-lg:
+    0 25px 7px rgba(0, 0, 0, 0.01),
+    0 16px 6px rgba(0, 0, 0, 0.03),
+    0 9px 5px rgba(10, 10, 10, 0.06),
+    0 4px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* Comfortable code block padding and smooth corners */
+/* ── Typography polish ────────────────────────────────────────────────────── */
+body {
+  font-feature-settings:
+    "ss01" on,
+    "cv11" on;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+h1 {
+  letter-spacing: -0.02em;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+/* ── Links ────────────────────────────────────────────────────────────────── */
+.sl-markdown-content a:not(:where(.not-content *)) {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in srgb, var(--sl-color-text-accent) 45%, transparent);
+  transition: text-decoration-color 120ms ease;
+}
+
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+  text-decoration-color: var(--sl-color-text-accent);
+}
+
+/* ── Inline + block code ──────────────────────────────────────────────────── */
+.sl-markdown-content :not(a, h1, h2, h3, h4, h5) > code:not(:where(.not-content *)) {
+  font-family: var(--__sl-font-mono);
+  font-size: 0.88em;
+  padding: 0.15rem 0.35rem;
+  border-radius: var(--careui-radius-sm);
+  border: 1px solid var(--sl-color-hairline-light);
+}
+
 .expressive-code .frame pre,
 .expressive-code pre {
-  padding: 1rem 1.25rem !important;
-  border-radius: 0.5rem;
+  border-radius: var(--careui-radius) !important;
+  padding-block: 0.95rem !important;
+  font-size: 0.875rem;
 }
 
-/* Slightly looser line-height in inline code */
-code {
-  font-size: 0.92em;
+.expressive-code .frame.is-terminal pre,
+.expressive-code .frame.has-title pre {
+  border-radius: 0 0 var(--careui-radius) var(--careui-radius) !important;
 }
 
-/* Make tables breathe */
-.sl-markdown-content table {
+.expressive-code .header {
+  border-top-left-radius: var(--careui-radius) !important;
+  border-top-right-radius: var(--careui-radius) !important;
+}
+
+/* ── Tables breathe ───────────────────────────────────────────────────────── */
+.sl-markdown-content table:not(:where(.not-content *)) {
   font-size: 0.9rem;
+  border-radius: var(--careui-radius-md);
+  overflow: hidden;
+  border: 1px solid var(--sl-color-hairline);
 }
 
 .sl-markdown-content table th,
 .sl-markdown-content table td {
-  padding: 0.5rem 0.75rem;
+  padding: 0.55rem 0.85rem;
+}
+
+/* ── Asides / callouts (careui-flavored borders + tints) ──────────────────── */
+.starlight-aside {
+  border-radius: var(--careui-radius);
+  border-inline-start-width: 2px;
+}
+
+/* ── Site header / nav ────────────────────────────────────────────────────── */
+header.header {
+  border-bottom: 1px solid var(--sl-color-hairline);
+  backdrop-filter: saturate(180%) blur(8px);
+}
+
+.site-title {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────────────── */
+.sidebar-content a:not(.large) {
+  border-radius: var(--careui-radius-sm);
+}
+
+.sidebar-content a[aria-current="page"] {
+  font-weight: 600;
+  background-color: color-mix(in srgb, var(--sl-color-accent) 14%, transparent);
+  color: var(--sl-color-text-accent);
+}
+
+/* ── Card primitive (CardGrid / Card) ─────────────────────────────────────── */
+.sl-markdown-content .card {
+  border-radius: var(--careui-radius-lg) !important;
+  border: 1px solid var(--sl-color-hairline) !important;
+  background: color-mix(in srgb, var(--sl-color-bg-sidebar) 60%, transparent);
+  box-shadow: var(--sl-shadow-sm);
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.sl-markdown-content .card:hover {
+  border-color: color-mix(in srgb, var(--sl-color-accent) 35%, var(--sl-color-hairline)) !important;
+  transform: translateY(-1px);
+  box-shadow: var(--sl-shadow-md);
+}
+
+.sl-markdown-content .card .icon {
+  color: var(--sl-color-text-accent);
+}
+
+.sl-markdown-content .card .title {
+  letter-spacing: -0.01em;
+}
+
+/* ── LinkCard ─────────────────────────────────────────────────────────────── */
+.sl-link-card {
+  border-radius: var(--careui-radius-lg) !important;
+  border-color: var(--sl-color-hairline) !important;
+  background: color-mix(in srgb, var(--sl-color-bg-sidebar) 60%, transparent) !important;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.sl-link-card:hover {
+  border-color: color-mix(in srgb, var(--sl-color-accent) 35%, var(--sl-color-hairline)) !important;
+  transform: translateY(-1px);
+  box-shadow: var(--sl-shadow-md);
+}
+
+/* ── Splash hero (landing page) ───────────────────────────────────────────── */
+.hero {
+  padding-block: clamp(2rem, 6vw, 4.5rem);
+}
+
+.hero h1 {
+  font-size: clamp(2.25rem, 5vw, 3.75rem);
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  font-weight: 700;
+  background: linear-gradient(
+    180deg,
+    var(--sl-color-white) 0%,
+    color-mix(in srgb, var(--sl-color-white) 70%, var(--sl-color-text-accent) 30%) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.hero .tagline {
+  max-width: 42rem;
+  font-size: clamp(1.05rem, 1.5vw, 1.25rem);
+  color: var(--sl-color-gray-2);
+}
+
+/* Buttons in the hero action row */
+.hero .actions a.action {
+  border-radius: var(--careui-radius);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  padding-inline: 1.1rem;
+  transition:
+    transform 120ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.hero .actions a.action.primary {
+  background: var(--careui-emerald-700);
+  color: #ffffff;
+  border-color: var(--careui-emerald-800);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 4px 12px -2px color-mix(in srgb, var(--careui-emerald-600) 50%, transparent);
+}
+
+:root[data-theme="light"] .hero .actions a.action.primary {
+  background: var(--careui-emerald-800);
+  border-color: var(--careui-emerald-900);
+}
+
+.hero .actions a.action.primary:hover {
+  background: var(--careui-emerald-600);
+  transform: translateY(-1px);
+}
+
+.hero .actions a.action.minimal,
+.hero .actions a.action.secondary {
+  border: 1px solid var(--sl-color-hairline);
+  background: color-mix(in srgb, var(--sl-color-bg-sidebar) 60%, transparent);
+}
+
+.hero .actions a.action.minimal:hover,
+.hero .actions a.action.secondary:hover {
+  border-color: color-mix(in srgb, var(--sl-color-accent) 40%, var(--sl-color-hairline));
+  transform: translateY(-1px);
+}
+
+/* Hero image / replacesTitle logo slot — center it nicely if used */
+.hero > img,
+.hero > .hero-html {
+  margin-inline: auto;
+}
+
+/* ── Selection ────────────────────────────────────────────────────────────── */
+::selection {
+  background: color-mix(in srgb, var(--careui-emerald-400) 35%, transparent);
+  color: var(--sl-color-white);
 }

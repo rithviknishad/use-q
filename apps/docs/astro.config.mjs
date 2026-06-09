@@ -10,8 +10,11 @@ export default defineConfig({
       description:
         "Type-safe API client for TypeScript and React, built on TanStack Query v5.",
       logo: {
-        src: "./public/favicon.svg",
+        light: "./public/logo-light.svg",
+        dark: "./public/logo-dark.svg",
+        alt: "use-q",
       },
+      favicon: "/favicon.svg",
       social: [
         {
           icon: "github",
@@ -20,6 +23,12 @@ export default defineConfig({
         },
       ],
       customCss: ["./src/styles/custom.css"],
+      head: [
+        {
+          tag: "meta",
+          attrs: { name: "theme-color", content: "#0a0a0a" },
+        },
+      ],
       sidebar: [
         {
           label: "Getting Started",
