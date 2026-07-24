@@ -27,6 +27,7 @@ export const schema = {
     method: 'POST',
     path: '/pets',
     tags: ['Pets'] as const,
+    invalidatesTags: ['Pets'] as const,
   } as RouteDefinition<Record<string, never>, Record<string, never>, PetInput, Pet>,
   getPet: {
     method: 'GET',

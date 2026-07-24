@@ -155,6 +155,13 @@ function serializeRoute(r: RoutePayload): string {
   lines.push(`    path: ${JSON.stringify(r.path)},`);
   if (r.tags?.length) {
     lines.push(`    tags: [${r.tags.map((t) => JSON.stringify(t)).join(', ')}] as const,`);
+    // Mutations invalidate their own tag group by default — the safe,
+    // predictable baseline. Hand-written schemas can refine per-route.
+    if (r.method !== 'get') {
+      lines.push(
+        `    invalidatesTags: [${r.tags.map((t) => JSON.stringify(t)).join(', ')}] as const,`,
+      );
+    }
   }
   if (r.pagination) {
     lines.push(
