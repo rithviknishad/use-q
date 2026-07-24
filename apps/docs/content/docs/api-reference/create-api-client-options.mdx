@@ -1,0 +1,141 @@
+---
+title: CreateApiClientOptions
+description: Every option accepted by createApiClient — extends CreateFetcherOptions with queryClient.
+---
+
+```ts
+function createApiClient<TSchema extends Schema>(
+  schema: TSchema,
+  options: CreateApiClientOptions,
+): ApiClient<TSchema>;
+
+interface CreateApiClientOptions extends CreateFetcherOptions {
+  queryClient?: QueryClient;
+}
+```
+
+`CreateApiClientOptions` is `CreateFetcherOptions` plus one extra field. Everything from [Fetcher options](/docs/api-reference/create-fetcher-options) applies; the React-specific knob is `queryClient`.
+
+Note that the schema is a **runtime** argument, not just a type parameter — the hooks read `tags`, `invalidatesTags`, and `pagination` off the route definitions at runtime to drive invalidation and infinite queries.
+
+## Fetcher-inherited fields
+
+These behave exactly like in `createFetcher`. Refer to that page for the full discussion:
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `baseUrl` | `string` | yes |
+| `headers` | `HeadersInit` or sync/async function returning one | no |
+| `fetch` | `typeof fetch` | no |
+| `parseError` | `({ response, data }) => unknown` | no |
+| `onError` | `(error) => void` | no |
+
+## React-only fields
+
+### `queryClient`
+
+| Type | Default |
+| --- | --- |
+| `QueryClient` (from `@tanstack/react-query`) | a freshly constructed `QueryClient` |
+
+If you provide a `QueryClient`, `createApiClient` uses it as-is. If not, it constructs one with TanStack Query's defaults.
+
+Use cases:
+
+- **Share defaults across multiple `createApiClient` instances.**
+- **Configure `defaultOptions`** (staleTime, gcTime, retry).
+- **Hook into persistence**, devtools, or other TanStack Query primitives.
+- **Embed `use-q` into an existing TanStack Query setup.**
+
+```ts
+import { QueryClient } from "@tanstack/react-query";
+import { createApiClient } from "@use-q/api-client-react";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false },
+    mutations: { retry: 0 },
+  },
+});
+
+export const api = createApiClient(schema, {
+  baseUrl: "https://api.example.com",
+  queryClient,
+});
+```
+
+See [BYO QueryClient](/docs/guides/byo-query-client) for full patterns (persistence, devtools, multiple clients).
+
+## Returned shape
+
+```ts
+const api = createApiClient(schema, options);
+
+api.useQ;          // (routeId, input?, options?) — read hook
+api.useM;          // (routeId, options?) — write hook
+api.useInfiniteQ;  // (routeId, input?, options?) — paginated read hook
+api.useSuspenseQ;  // (routeId, input?, options?) — Suspense read hook
+api.useQClient;    // () — typed cache-control hook
+
+api.fetcher;       // FetcherInstance
+api.queryClient;   // QueryClient
+api.queryKeys;     // QueryKeysFactory<TSchema>
+api.isApiError;    // type guard, re-exported for convenience
+api.schema;        // the schema you passed in
+api._tagRegistry;  // internal TagRegistry (semi-private)
+```
+
+| Field | Purpose |
+| --- | --- |
+| `useQ` | Read hook (TanStack Query `useQuery` semantics). Called as `useQ(routeId, input?, options?)` where `input = { params?, searchParams? }`. |
+| `useM` | Write hook with optimistic updates + tag invalidation. Called as `useM(routeId, options?)`; variables `{ params?, body?, searchParams? }` go to `mutate`. |
+| `useInfiniteQ` | Paginated reads. Requires the route to have a `pagination` block — throws otherwise. |
+| `useSuspenseQ` | Suspense-friendly read, same signature as `useQ`. |
+| `useQClient` | Returns `{ invalidateTag, invalidate, invalidateAll, setData, updateData, prefetch }`. |
+| `fetcher` | The framework-agnostic fetcher backing all hooks. Use in loaders/RSC. |
+| `queryClient` | The `QueryClient` (yours, or constructed). Pass to `<QueryClientProvider>`. |
+| `queryKeys` | Per-route key factory: `api.queryKeys.routeId(input?)` returns the canonical `["api", METHOD, resolvedPath, sortedSearchParams]` key, where `input = { params?, searchParams? }`. |
+| `isApiError` | Type guard, re-exported for convenience. |
+| `schema` | The runtime schema, exposed for introspection. |
+| `_tagRegistry` | Internal `TagRegistry`. Exposed for testing and advanced patterns — treat as semi-private. |
+
+## Type parameters
+
+```ts
+createApiClient<TSchema extends Schema>(schema, options);
+```
+
+**`TSchema`** is inferred from the `schema` argument, so you rarely write it explicitly — every hook, `queryKeys` entry, and `useQClient` method is typed from it.
+
+Error typing is handled at catch sites rather than as a client-level generic: shape the payload with `parseError` and narrow with `isApiError<T>`:
+
+```ts
+interface ApiProblem {
+  type: string;
+  title: string;
+  detail: string;
+}
+
+export const api = createApiClient(schema, {
+  baseUrl: "https://api.example.com",
+  parseError: ({ response, data }) => {
+    const json = data as Partial<ApiProblem> | null;
+    return {
+      type: json?.type ?? "about:blank",
+      title: json?.title ?? response.statusText,
+      detail: json?.detail ?? "",
+    } satisfies ApiProblem;
+  },
+});
+
+// Anywhere an error surfaces:
+if (api.isApiError<ApiProblem>(error)) {
+  console.error(error.data.title);
+}
+```
+
+## See also
+
+- [`createApiClient` walkthrough](/docs/react/create-api-client) — the recommended pattern (`src/api/client.ts` + hook re-exports).
+- [`CreateFetcherOptions`](/docs/api-reference/create-fetcher-options) — every fetcher-side field.
+- [BYO QueryClient](/docs/guides/byo-query-client) — sharing one `QueryClient` across multiple clients, persistence, devtools.

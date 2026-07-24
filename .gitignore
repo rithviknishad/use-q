@@ -1,7 +1,10 @@
 node_modules
 dist
 .turbo
-.astro
+.next
+out
+next-env.d.ts
+*.tsbuildinfo
 coverage
 *.log
 .DS_Store

@@ -1,0 +1,304 @@
+---
+title: RouteDefinition
+description: Complete type reference for RouteDefinition — every field, generics, Tag, and PaginationDef variants.
+---
+
+A `RouteDefinition` describes one route in your schema. A whole `Schema` is `Record<string, RouteDefinition>` — keyed by an arbitrary route id (typically the `operationId` or `"METHOD path"`).
+
+## Type
+
+```ts
+interface RouteDefinition<
+  TParams = unknown,
+  TSearch = unknown,
+  TBody = unknown,
+  TResponse = unknown,
+> {
+  method: HttpMethod;
+  path: string;
+  tags?:
+    | ReadonlyArray<Tag>
+    | ((ctx: { response: TResponse; params: TParams }) => ReadonlyArray<Tag>);
+  invalidatesTags?:
+    | ReadonlyArray<Tag>
+    | ((ctx: {
+        response: TResponse | undefined;
+        variables: { params?: TParams; body?: TBody };
+      }) => ReadonlyArray<Tag>);
+  pagination?: PaginationDef;
+}
+
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+```
+
+Only `method`, `path`, `tags`, `invalidatesTags`, and `pagination` exist at runtime. The four generics — path params, search params, body, response — are attached at the type level with a `satisfies` clause:
+
+```ts
+import type { RouteDefinition } from "@use-q/api-client";
+
+const getPost = {
+  method: "GET",
+  path: "/facilities/{facilityId}/posts/{postId}",
+} satisfies RouteDefinition<
+  { facilityId: string; postId: string }, // TParams
+  Record<string, never>,                  // TSearch
+  never,                                  // TBody
+  Post                                    // TResponse
+>;
+```
+
+<Callout type="info">
+
+`RouteDefinition` also declares optional phantom fields (`__params`, `__search`, `__body`, `__response`) that exist purely so TypeScript can infer the generics back out of a schema. They're never read at runtime — never assign them.
+
+</Callout>
+
+## Fields
+
+### `method`
+
+The HTTP method. One of `"GET" | "POST" | "PUT" | "PATCH" | "DELETE"`.
+
+| Method | Cached as a query? | Typical hook |
+| --- | --- | --- |
+| `GET` | yes | `useQ` / `useSuspenseQ` / `useInfiniteQ` |
+| `POST` | no | `useM` |
+| `PUT` | no | `useM` |
+| `PATCH` | no | `useM` |
+| `DELETE` | no | `useM` |
+
+For non-`GET` methods with a body, the fetcher JSON-stringifies the body and sets `Content-Type: application/json` (unless you provide your own).
+
+### `path`
+
+A string with `{paramName}` placeholders, e.g. `/facilities/{facilityId}/posts/{postId}`. Each placeholder is filled from the call-site `params`, URI-encoded. A placeholder with no corresponding value throws at request time, so keep the placeholders in sync with `TParams`:
+
+```ts
+{
+  method: "GET",
+  path: "/facilities/{facilityId}/posts/{postId}",
+} satisfies RouteDefinition<{ facilityId: string; postId: string }, Record<string, never>, never, Post>
+```
+
+### Path params (`TParams`)
+
+The first generic. All placeholder values are **required** at request time — a missing or `undefined`/`null` value throws. Use `Record<string, never>` for routes without path params.
+
+### Search params (`TSearch`)
+
+The second generic. Optional properties become optional at the call site:
+
+```ts
+satisfies RouteDefinition<…, { search?: string; page?: number }, …, …>
+```
+
+`undefined`/`null` values are stripped before request and query-key construction, so they don't fragment the cache. Array values are appended as repeated keys (`?id=1&id=2`).
+
+### Body (`TBody`)
+
+The third generic, for `POST`/`PUT`/`PATCH`/`DELETE`. Use `never` for routes that take no body. The value is `JSON.stringify`-ed with an automatic `Content-Type: application/json` header:
+
+```ts
+satisfies RouteDefinition<…, …, { title: string; body: string }, …>
+```
+
+For non-JSON bodies (form data, blobs), serialize yourself and pass a `headers` override per-call.
+
+### Response (`TResponse`)
+
+The fourth generic — the successful-response type. Empty response bodies (e.g. 204 No Content) resolve to `undefined`, so type those as `undefined` (or `void`):
+
+```ts
+satisfies RouteDefinition<…, …, …, Post>;                            // 200 with JSON
+satisfies RouteDefinition<…, …, …, Post[]>;                          // list response
+satisfies RouteDefinition<…, …, …, undefined>;                       // 204
+satisfies RouteDefinition<…, …, …, { items: Post[]; total: number }>; // paginated
+```
+
+### `tags`
+
+Labels the cache entries produced by this route (only meaningful for `GET` routes). Either a static `ReadonlyArray<Tag>`, or a function that derives tags from the response and params:
+
+```ts
+// Static
+tags: ["Posts"];
+
+// Dynamic — the whole field is a function
+tags: ({ response, params }) => [{ type: "post", id: response.id }];
+```
+
+See [Tag invalidation](/docs/guides/tag-invalidation) for the full lifecycle.
+
+### `invalidatesTags`
+
+For mutating routes: which tags to invalidate after the mutation settles. Either a static `ReadonlyArray<Tag>`, or a function receiving the mutation's response and variables:
+
+```ts
+// Static
+invalidatesTags: ["Posts"];
+
+// Dynamic
+invalidatesTags: ({ response, variables }) => [
+  { type: "post", id: variables.params?.postId },
+  "Posts",
+];
+```
+
+The function's `response` may be `undefined` (the mutation may have failed), and `variables` is `{ params?, body? }` from the `mutate` call.
+
+### `pagination`
+
+A `PaginationDef` (see below) for paginated routes. Required for `useInfiniteQ` — the hook throws if the route has no `pagination` block:
+
+```ts
+pagination: { kind: "page-number", pageParam: "page" };
+```
+
+## `Tag`
+
+```ts
+type Tag = string | { type: string; id?: string | number };
+```
+
+A tag is either a plain string or a `{ type, id? }` object — nothing else. There are no function-valued fields inside a tag; when you need tags computed from data, make the whole `tags`/`invalidatesTags` field a function (as shown above).
+
+Tags normalize to strings for matching: `{ type: "post", id: 42 }` → `"post:42"`, `{ type: "post" }` → `"post"`, and string tags stay as-is (`tagToString` is exported if you need the same normalization).
+
+```ts
+// Plain string
+"Posts"
+
+// Type only
+{ type: "settings" }
+
+// Type + id
+{ type: "post", id: postId }
+```
+
+See [Tag invalidation > Static vs dynamic tags](/docs/guides/tag-invalidation) for matching semantics.
+
+## `PaginationDef`
+
+Two variants — page-number and cursor:
+
+```ts
+type PaginationDef =
+  | {
+      kind: "page-number";
+      pageParam: string;   // searchParams key for the page number, e.g. "page"
+      itemsKey?: string;   // response field containing items (default "items")
+      totalKey?: string;   // response field containing total count (default "total")
+    }
+  | {
+      kind: "cursor";
+      pageParam: string;   // searchParams key for the cursor, e.g. "cursor"
+      cursorKey?: string;  // response field containing the next cursor (default "nextCursor")
+      itemsKey?: string;   // response field containing items (default "items")
+    };
+```
+
+### Page-number example
+
+```ts
+listPosts: {
+  method: "GET",
+  path: "/facilities/{facilityId}/posts",
+  pagination: { kind: "page-number", pageParam: "page" } as const,
+} satisfies RouteDefinition<
+  { facilityId: string },
+  { page?: number; limit?: number },
+  never,
+  { items: Post[]; total: number }
+>,
+```
+
+### Cursor example
+
+```ts
+listFeed: {
+  method: "GET",
+  path: "/feed",
+  pagination: { kind: "cursor", pageParam: "cursor" } as const,
+} satisfies RouteDefinition<
+  Record<string, never>,
+  { cursor?: string; limit?: number },
+  never,
+  { items: Post[]; nextCursor: string | null }
+>,
+```
+
+## Inferred helpers
+
+`@use-q/api-client` exports utility types that extract the generics back out of a route definition:
+
+```ts
+import type {
+  Schema,
+  AnyRouteDefinition,
+  RouteInput,
+  RouteParams,
+  RouteSearch,
+  RouteBody,
+  RouteResponse,
+} from "@use-q/api-client";
+
+type ListPostsRoute    = typeof schema["listPosts"];
+type ListPostsParams   = RouteParams<ListPostsRoute>;   // { facilityId: string }
+type ListPostsSearch   = RouteSearch<ListPostsRoute>;   // { page?: number; limit?: number }
+type ListPostsResponse = RouteResponse<ListPostsRoute>; // { items: Post[]; total: number }
+
+// The shape hooks and queryKeys accept for a route:
+type ListPostsInput = RouteInput<ListPostsRoute>; // { params?; searchParams?; body? }
+```
+
+These are how `useQ`, `useM`, and friends produce their fully-typed call-site shapes.
+
+## Putting it together
+
+```ts
+import type { RouteDefinition } from "@use-q/api-client";
+
+interface Post {
+  id: string;
+  facilityId: string;
+  title: string;
+  body: string;
+  createdAt: string;
+}
+
+export const schema = {
+  listPosts: {
+    method: "GET",
+    path: "/facilities/{facilityId}/posts",
+    tags: ["Posts"],
+    pagination: { kind: "page-number", pageParam: "page" } as const,
+  } satisfies RouteDefinition<
+    { facilityId: string },
+    { page?: number; limit?: number },
+    never,
+    { items: Post[]; total: number }
+  >,
+  getPost: {
+    method: "GET",
+    path: "/facilities/{facilityId}/posts/{postId}",
+    tags: ({ response }) => [{ type: "post", id: response.id }],
+  } satisfies RouteDefinition<
+    { facilityId: string; postId: string },
+    Record<string, never>,
+    never,
+    Post
+  >,
+  createPost: {
+    method: "POST",
+    path: "/facilities/{facilityId}/posts",
+    invalidatesTags: ["Posts"],
+  } satisfies RouteDefinition<
+    { facilityId: string },
+    Record<string, never>,
+    { title: string; body: string },
+    Post
+  >,
+} as const;
+
+export type AppSchema = typeof schema;
+```

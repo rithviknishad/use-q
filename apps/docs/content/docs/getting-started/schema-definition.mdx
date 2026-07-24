@@ -1,0 +1,301 @@
+---
+title: Schema definition
+description: Anatomy of a RouteDefinition — every field, with examples.
+---
+
+A `use-q` schema is a plain object literal where each key is a route name and each value is a `RouteDefinition`. Each route is checked with `satisfies RouteDefinition<TParams, TSearch, TBody, TResponse>`, and the whole map ends with `as const` so TypeScript keeps literal types and can infer every parameter and response down to the field level.
+
+```ts
+import type { RouteDefinition } from "@use-q/api-client";
+
+export const schema = {
+  // <route name>: { ... } satisfies RouteDefinition<TParams, TSearch, TBody, TResponse>,
+} as const;
+```
+
+The four type arguments are:
+
+| Slot | Meaning |
+| --- | --- |
+| `TParams` | Path parameters — keys for every `{placeholder}` in `path`. |
+| `TSearch` | Query-string shape. |
+| `TBody` | Request body (for mutating methods). |
+| `TResponse` | Success-response shape. |
+
+Use `never` for slots a route doesn't need. Below is a tour of every runtime field a `RouteDefinition` supports, using the running `facilities → posts → comments` example.
+
+## `method` and `path`
+
+`method` is one of `"GET" | "POST" | "PUT" | "PATCH" | "DELETE"`. `path` is a literal string with `{paramName}` placeholders.
+
+```ts
+{
+  method: "GET",
+  path: "/facilities/{facilityId}/posts/{postId}",
+}
+```
+
+Path placeholders are filled from the `params` object you pass at the call site. If a placeholder has no corresponding value at request time, the fetcher throws a `Missing path parameter` error.
+
+## Path parameters (`TParams`)
+
+The first type argument declares the path-parameter shape. There is no runtime field — the type flows straight into every hook:
+
+```ts
+listComments: {
+  method: "GET",
+  path: "/facilities/{facilityId}/posts/{postId}/comments",
+} satisfies RouteDefinition<
+  { facilityId: string; postId: string },
+  never,
+  never,
+  Comment[]
+>,
+```
+
+At the call site, all keys are required:
+
+```ts
+useQ("listComments", {
+  params: { facilityId: "f1", postId: "p1" },
+});
+```
+
+## Search parameters (`TSearch`)
+
+The second type argument describes the query-string shape. Optional properties (`search?:`) become optional at the call site, and `undefined` values are stripped from the URL.
+
+```ts
+listPosts: {
+  method: "GET",
+  path: "/facilities/{facilityId}/posts",
+} satisfies RouteDefinition<
+  { facilityId: string },
+  {
+    search?: string;
+    tag?: string;
+    limit?: number;
+    sort?: "newest" | "oldest";
+  },
+  never,
+  Post[]
+>,
+```
+
+The resolved search params become part of the query key (with keys sorted, so ordering doesn't matter), so two requests with different `searchParams` get independent cache entries.
+
+## Request body (`TBody`)
+
+The third type argument, for mutating methods. Strongly typed; `use-q` calls `JSON.stringify` for you and sets `Content-Type: application/json`.
+
+```ts
+createPost: {
+  method: "POST",
+  path: "/facilities/{facilityId}/posts",
+} satisfies RouteDefinition<
+  { facilityId: string },
+  never,
+  { title: string; body: string; tags?: string[] },
+  Post
+>,
+```
+
+## Response (`TResponse`)
+
+The fourth type argument is the success-response shape. This is the type of `data` from `useQ` and the resolved value of `useM(...).mutateAsync(...)`.
+
+```ts
+satisfies RouteDefinition<..., ..., ..., Post>
+// or
+satisfies RouteDefinition<..., ..., ..., { items: Post[]; total: number }>
+// or
+satisfies RouteDefinition<..., ..., ..., void> // 204 No Content
+```
+
+## `tags`
+
+Labels what a query route _reads_, for tag-based invalidation. A `Tag` is either a plain string or `{ type: string; id?: string | number }`. The field accepts a static array, or a function that derives tags from the fetched response and the resolved params:
+
+```ts
+listPosts: {
+  // …
+  tags: ["posts"],
+},
+getPost: {
+  // …
+  tags: ({ params }) => [{ type: "post", id: params.postId }],
+  // or derive from the response instead:
+  // tags: ({ response }) => [{ type: "post", id: response?.id }],
+},
+```
+
+### Static vs dynamic tags
+
+A static tag is fixed for every query of that route:
+
+```ts
+listSettings: {
+  // …
+  tags: ["settings"],
+}
+```
+
+A dynamic tag uses the function form to derive an `id` from the response or params, so each query instance registers its own tag:
+
+```ts
+tags: ({ params }) => [{ type: "post", id: params.postId }];
+```
+
+Matching is exact: tags are normalized to `"type"` (no id) or `"type:id"` strings, and a mutation invalidates precisely the queries registered under the same normalized tag. So invalidating `{ type: "post", id: "p1" }` refetches queries tagged `{ type: "post", id: "p1" }` — not queries tagged plain `"post"` or `{ type: "post", id: "p2" }`. To refresh both a list and a detail view, register (and invalidate) both tags.
+
+## `invalidatesTags`
+
+The mirror of `tags`, but for mutations: what data does this route _write_? Listed tags are invalidated in `onSettled`. Like `tags`, it accepts a static array or a function — the function receives the mutation `response` and the `variables` (`{ params?, body? }`) that were passed to `mutate()`:
+
+```ts
+createPost: {
+  // …
+  invalidatesTags: ["posts"],
+},
+deletePost: {
+  // …
+  invalidatesTags: ({ variables }) => [
+    "posts",
+    { type: "post", id: variables.params?.postId },
+  ],
+},
+```
+
+<Callout type="info">
+
+Tag invalidation runs in `onSettled` — both success and error — so retries
+refetch consistently. See [Tag invalidation](/docs/guides/tag-invalidation) for
+the full lifecycle.
+
+</Callout>
+
+## `pagination`
+
+For routes that return paginated data. The shape tells `useInfiniteQ` how to derive the page param and `getNextPageParam`.
+
+### Page-number pagination
+
+```ts
+listPosts: {
+  method: "GET",
+  path: "/facilities/{facilityId}/posts",
+  pagination: {
+    kind: "page-number",
+    pageParam: "page",
+    itemsKey: "items", // default "items"
+    totalKey: "total", // default "total"
+  },
+} satisfies RouteDefinition<
+  { facilityId: string },
+  { page?: number; limit?: number },
+  never,
+  { items: Post[]; total: number }
+>,
+```
+
+### Cursor pagination
+
+```ts
+listFeed: {
+  method: "GET",
+  path: "/feed",
+  pagination: {
+    kind: "cursor",
+    pageParam: "cursor",
+    cursorKey: "nextCursor", // default "nextCursor"
+    itemsKey: "items", // default "items"
+  },
+} satisfies RouteDefinition<
+  never,
+  { cursor?: string; limit?: number },
+  never,
+  { items: Post[]; nextCursor: string | null }
+>,
+```
+
+See [`useInfiniteQ`](/docs/react/use-infinite-q) for the consuming side.
+
+## Putting it together
+
+```ts
+import type { RouteDefinition } from "@use-q/api-client";
+
+interface Post {
+  id: string;
+  facilityId: string;
+  title: string;
+  body: string;
+}
+
+interface Comment {
+  id: string;
+  postId: string;
+  author: string;
+  body: string;
+}
+
+export const schema = {
+  listPosts: {
+    method: "GET",
+    path: "/facilities/{facilityId}/posts",
+    tags: ["posts"],
+  } satisfies RouteDefinition<{ facilityId: string }, { search?: string }, never, Post[]>,
+  getPost: {
+    method: "GET",
+    path: "/facilities/{facilityId}/posts/{postId}",
+    tags: ({ params }) => [{ type: "post", id: params.postId }],
+  } satisfies RouteDefinition<{ facilityId: string; postId: string }, never, never, Post>,
+  createPost: {
+    method: "POST",
+    path: "/facilities/{facilityId}/posts",
+    invalidatesTags: ["posts"],
+  } satisfies RouteDefinition<
+    { facilityId: string },
+    never,
+    { title: string; body: string },
+    Post
+  >,
+  updatePost: {
+    method: "PATCH",
+    path: "/facilities/{facilityId}/posts/{postId}",
+    invalidatesTags: ({ variables }) => [
+      "posts",
+      { type: "post", id: variables.params?.postId },
+    ],
+  } satisfies RouteDefinition<
+    { facilityId: string; postId: string },
+    never,
+    Partial<Pick<Post, "title" | "body">>,
+    Post
+  >,
+  deletePost: {
+    method: "DELETE",
+    path: "/facilities/{facilityId}/posts/{postId}",
+    invalidatesTags: ({ variables }) => [
+      "posts",
+      { type: "post", id: variables.params?.postId },
+    ],
+  } satisfies RouteDefinition<{ facilityId: string; postId: string }, never, never, void>,
+  listComments: {
+    method: "GET",
+    path: "/facilities/{facilityId}/posts/{postId}/comments",
+    tags: ({ params }) => [{ type: "comments", id: params.postId }],
+  } satisfies RouteDefinition<
+    { facilityId: string; postId: string },
+    never,
+    never,
+    Comment[]
+  >,
+} as const;
+```
+
+## Tips
+
+- Keep your schema in a shared package if you have a monorepo — see [Monorepo usage](/docs/guides/monorepo-usage).
+- Don't forget `as const` on the schema object — without it, literal types widen to `string` and inference breaks.
+- Use the [codegen CLI](/docs/core/codegen) to generate a starting schema from an OpenAPI spec, then hand-edit tags.

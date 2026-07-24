@@ -1,0 +1,159 @@
+---
+title: Query keys
+description: How use-q structures TanStack Query keys for prefix-based invalidation and predictable caching.
+---
+
+Every query produced by `useQ` / `useSuspenseQ` / `useInfiniteQ` lives at a key with a strict, predictable shape:
+
+```ts
+["api", method, resolvedPath, searchParams];
+```
+
+That's it. Four positional segments — always four, even when there are no search params. Understanding this shape unlocks a lot of power, because TanStack Query's `invalidateQueries` / `getQueriesData` filters match keys by **prefix**.
+
+## The four segments
+
+### 1. `"api"` — namespace
+
+A constant. Lets you tell `use-q` queries apart from any other TanStack Query usage in the same `QueryClient`:
+
+```ts
+queryClient.invalidateQueries({ queryKey: ["api"] }); // every use-q query
+```
+
+### 2. `method` — HTTP method
+
+Uppercase, matches the schema route's `method`: `"GET"`, `"POST"`, etc. In practice only `"GET"` shows up as a cached query — mutations don't get cache entries.
+
+### 3. `resolvedPath` — path with params filled in
+
+The route's `path` string with placeholders substituted (each value URI-encoded). For example:
+
+| Route | `params` | Resolved path |
+| --- | --- | --- |
+| `/facilities/{facilityId}/posts` | `{ facilityId: "f1" }` | `/facilities/f1/posts` |
+| `/facilities/{facilityId}/posts/{postId}` | `{ facilityId: "f1", postId: "p1" }` | `/facilities/f1/posts/p1` |
+
+### 4. `searchParams` — query params object
+
+A copy of the `searchParams` object with its keys **sorted** and `undefined` values **dropped** — not the encoded query string. TanStack Query deep-compares objects structurally, and the sorting means `{ a: 1, b: 2 }` and `{ b: 2, a: 1 }` produce the same key.
+
+When there are no search params, the segment is an empty object `{}` — never missing:
+
+```ts
+useQ("listPosts", { params: { facilityId: "f1" } });
+// → ["api", "GET", "/facilities/f1/posts", {}]
+
+useQ("listPosts", {
+  params: { facilityId: "f1" },
+  searchParams: { search: undefined },
+});
+// → ["api", "GET", "/facilities/f1/posts", {}]
+```
+
+Because `undefined` values are stripped before the key is built, missing optional params don't fragment the cache.
+
+## Why this shape?
+
+### Prefix invalidation
+
+Because keys are positional arrays, you can invalidate at several granularities:
+
+```ts
+// Everything use-q
+queryClient.invalidateQueries({ queryKey: ["api"] });
+
+// Every GET
+queryClient.invalidateQueries({ queryKey: ["api", "GET"] });
+
+// listPosts for facility f1, any searchParams
+queryClient.invalidateQueries({
+  queryKey: ["api", "GET", "/facilities/f1/posts"],
+});
+
+// listPosts for facility f1, search === "" only
+queryClient.invalidateQueries({
+  queryKey: ["api", "GET", "/facilities/f1/posts", { search: "" }],
+  exact: true,
+});
+```
+
+<Callout type="warning">
+
+Prefix matching is **per-segment**, not per-character. `["api", "GET", "/facilities"]` does _not_ match `["api", "GET", "/facilities/f1/posts", {}]` — the resolved path is a single string segment and must match in full. To target "every list for any facility", use [tags](/docs/guides/tag-invalidation) instead.
+
+</Callout>
+
+The same machinery powers [`useQClient().invalidate(...)`](/docs/react/use-q-client) — pass an exact key array for an exact match, or `{ prefix: [...] }` for prefix matching.
+
+### Stable + diff-friendly
+
+Two queries with the same input produce the same key by structural equality. You don't need to memoize anything in your component — TanStack Query already does the work.
+
+```tsx
+useQ("listPosts", {
+  params: { facilityId: "f1" },
+  searchParams: { search: "" },
+});
+// Re-rendering 100 times yields one cache entry.
+```
+
+### Cheap to inspect in devtools
+
+The `@tanstack/react-query-devtools` panel groups entries by key, so the shape above gives you a navigable tree: namespace → method → path → params.
+
+## Built-in `queryKeys` factory
+
+`createApiClient` returns a `queryKeys` factory that builds these keys for you. Each entry takes the route's input — `{ params?, searchParams? }` — and returns the full four-segment key. It's the right thing to use when you call TanStack Query's primitives manually:
+
+```ts
+import { api } from "@/api/client";
+
+await api.queryClient.prefetchQuery({
+  queryKey: api.queryKeys.listPosts({
+    params: { facilityId: "f1" },
+    searchParams: { search: "" },
+  }),
+  queryFn: ({ signal }) =>
+    api.fetcher.fetch(api.schema.listPosts.path, {
+      params: { facilityId: "f1" },
+      searchParams: { search: "" },
+      signal,
+    }),
+});
+```
+
+(For plain prefetching, [`useQClient().prefetch("listPosts", input)`](/docs/react/use-q-client) does all of the above in one call.)
+
+The factory always returns the complete key, including the trailing search-params object:
+
+```ts
+api.queryKeys.listPosts({ params: { facilityId: "f1" } });
+// ["api", "GET", "/facilities/f1/posts", {}]
+```
+
+If you need a prefix (to match any `searchParams`), slice off the last segment:
+
+```ts
+const key = api.queryKeys.listPosts({ params: { facilityId: "f1" } });
+queryClient.invalidateQueries({ queryKey: key.slice(0, 3) });
+```
+
+## Tags vs keys: when to use which
+
+| Use case | Tool |
+| --- | --- |
+| "Invalidate this exact `getPost`" | `qc.invalidate(api.queryKeys.getPost({ params }))` |
+| "Invalidate `listPosts` for facility f1, any `searchParams`" | `qc.invalidate({ prefix: ["api", "GET", "/facilities/f1/posts"] })` |
+| "Invalidate everything tagged `{ type: "posts", id: "f1" }`" | `qc.invalidateTag({ type: "posts", id: "f1" })` |
+| "After a mutation, refresh everything the schema says it touches" | Schema `invalidatesTags` — automatic in `useM` |
+
+Tags are loose-coupling — multiple routes can share a tag, and you don't need to know the consumer's `searchParams`. Keys are tight-coupling — you target a specific cache slot.
+
+In practice, prefer tags for cross-cutting refreshes (after writes) and keys for surgical edits (after explicit user actions).
+
+<Callout type="tip">
+
+When debugging "why didn't this query refetch?", inspect the actual key in devtools and compare it to your invalidation filter. A near-miss usually means the resolved path or `searchParams` differ in some subtle way (e.g. a `null` value that wasn't stripped — only `undefined` values are dropped from the key).
+
+</Callout>

@@ -1,0 +1,163 @@
+---
+title: ApiErrorBoundary
+description: A typed React error boundary for use with useSuspenseQ. fallback signature, reset semantics, and ApiError narrowing.
+---
+
+`<ApiErrorBoundary>` is a small class-based error boundary that catches `ApiError`s thrown during render and lets you reset back to a clean state. Anything that is *not* an `ApiError` is re-thrown to the next boundary up the tree — so inside the fallback, the error is always a typed `ApiError`.
+
+It's the partner to `useSuspenseQ` / `useSuspenseInfiniteQuery`. Throwing a `Promise` (suspending) propagates to `<Suspense>`; throwing an `ApiError` propagates here.
+
+## Basic usage
+
+```tsx
+import { Suspense } from "react";
+import { ApiErrorBoundary } from "@use-q/api-client-react";
+import { useSuspenseQ } from "@/api/client";
+
+function PostList({ facilityId }: { facilityId: string }) {
+  const { data } = useSuspenseQ("listPosts", { params: { facilityId } });
+  return data.map((p) => <article key={p.id}>{p.title}</article>);
+}
+
+export function Page({ facilityId }: { facilityId: string }) {
+  return (
+    <ApiErrorBoundary
+      fallback={({ error, reset }) => (
+        <div role="alert">
+          {error.status} — {error.message}
+          <button onClick={reset}>Retry</button>
+        </div>
+      )}
+    >
+      <Suspense fallback={<p>Loading posts…</p>}>
+        <PostList facilityId={facilityId} />
+      </Suspense>
+    </ApiErrorBoundary>
+  );
+}
+```
+
+## Props
+
+```ts
+interface ApiErrorBoundaryProps {
+  children: React.ReactNode;
+  fallback: (state: { error: ApiError<unknown>; reset: () => void }) => React.ReactNode;
+  onError?: (error: unknown, info: React.ErrorInfo) => void;
+}
+```
+
+### `fallback`
+
+Called whenever an `ApiError` is caught during render. It receives a **single object** with the typed `error` and a `reset` function — no `isApiError` check needed, because non-API errors never reach the fallback (they're re-thrown to the next boundary).
+
+Branch on `error.status` and read the (parsed) error payload from `error.data`:
+
+```tsx
+<ApiErrorBoundary
+  fallback={({ error, reset }) => {
+    if (error.status === 404) return <NotFound />;
+    if (error.status === 403) return <Forbidden />;
+    return (
+      <ProblemAlert problem={error.data as ApiProblem} onRetry={reset} />
+    );
+  }}
+>
+  {/* … */}
+</ApiErrorBoundary>
+```
+
+If you configured `parseError` on the client, `error.data` holds whatever it returned — see [Error handling](/docs/core/error-handling).
+
+### `onError`
+
+A side-effecting hook that fires once per caught error (API or not), with React's `ErrorInfo` as the second argument. Use it for telemetry:
+
+```tsx
+<ApiErrorBoundary
+  onError={(err, info) => {
+    Sentry.captureException(err, { extra: { componentStack: info.componentStack } });
+  }}
+  fallback={({ error, reset }) => <ErrorScreen error={error} onRetry={reset} />}
+>
+```
+
+Note `onError` fires for non-API errors too — right before the boundary re-throws them to the next boundary up.
+
+## `reset()` semantics
+
+`reset()` does exactly one thing: it clears the boundary's internal error state, causing it to re-render its `children`.
+
+It does **not** automatically refetch. The next render will resume normally — if the underlying query is still in an errored state, the suspense child will throw again immediately. The typical pattern is to pair `reset` with a cache invalidation. Since `fallback` is a plain render callback (not a component), do that in a small fallback component that can call hooks:
+
+```tsx
+import { useQClient } from "@/api/client";
+import type { ApiError } from "@use-q/api-client-react";
+
+function RetryFallback({ error, reset }: { error: ApiError<unknown>; reset: () => void }) {
+  const qc = useQClient();
+  return (
+    <button
+      onClick={() => {
+        void qc.invalidateAll();
+        reset();
+      }}
+    >
+      Try again
+    </button>
+  );
+}
+
+<ApiErrorBoundary
+  fallback={({ error, reset }) => <RetryFallback error={error} reset={reset} />}
+>
+  {/* … */}
+</ApiErrorBoundary>
+```
+
+## Nesting
+
+You can nest boundaries to make some parts of the page fail in isolation:
+
+```tsx
+<ApiErrorBoundary fallback={() => <PageError />}>
+  <Suspense fallback={<PageSkeleton />}>
+    <Header />
+    <ApiErrorBoundary fallback={() => <CommentsUnavailable />}>
+      <Suspense fallback={<CommentsSkeleton />}>
+        <Comments postId={postId} />
+      </Suspense>
+    </ApiErrorBoundary>
+  </Suspense>
+</ApiErrorBoundary>
+```
+
+The inner boundary catches `ApiError`s from `<Comments />` only; everything else keeps rendering. And because non-API errors are re-thrown, a programming error inside `<Comments />` still bubbles to the outer boundary (or your framework's root boundary) rather than being masked as an API failure.
+
+## Typing `error.data` with `isApiError`
+
+Inside the fallback, `error` is already an `ApiError<unknown>`. To type the payload, either cast `error.data` or use the generic `isApiError` guard where you have an `unknown` error (e.g. in `onError` or in `useQ` results):
+
+```ts
+import { isApiError } from "@use-q/api-client-react";
+
+interface ApiProblem {
+  type: string;
+  title: string;
+  detail: string;
+}
+
+onError={(err) => {
+  if (isApiError<ApiProblem>(err)) {
+    log.warn(`${err.status} ${err.data.title}: ${err.data.detail}`);
+  }
+}}
+```
+
+`ApiError` carries `status`, `statusText`, `data`, `url`, and `method`.
+
+<Callout type="tip">
+
+The boundary only holds on to errors that pass `isApiError`. Prefer letting `use-q` produce the `ApiError` for you rather than throwing strings or POJOs — anything else is re-thrown and needs its own boundary.
+
+</Callout>

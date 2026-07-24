@@ -18,7 +18,7 @@ packages/
   api-client-codegen/   # @use-q/api-client-codegen (CLI)
   api-client-react/     # @use-q/api-client-react (hooks)
 apps/
-  docs/                 # Astro + Starlight documentation
+  docs/                 # Next.js documentation site (use-q.dev)
 ```
 
 ## Development

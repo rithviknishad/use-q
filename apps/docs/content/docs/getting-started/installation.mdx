@@ -1,0 +1,125 @@
+---
+title: Installation
+description: Install use-q and its React bindings with pnpm, npm, or yarn.
+---
+
+`use-q` ships as two installable packages plus an optional codegen CLI:
+
+| Package | What it provides |
+| --- | --- |
+| `@use-q/api-client` | Framework-agnostic `createFetcher` + types. Zero runtime dependencies. |
+| `@use-q/api-client-react` | `createApiClient` and hooks (`useQ`, `useM`, …) on top of TanStack Query v5. |
+| `@use-q/api-client-codegen` | OpenAPI → `RouteDefinition` map generator. Ships the `use-q-codegen` CLI bin. |
+
+## Requirements
+
+- **Node.js 18 or newer.** `use-q` relies on global `fetch` and `AbortController`.
+- For the React layer: **React 18+** and **`@tanstack/react-query` 5.x**.
+
+## Install
+
+<Tabs defaultValue="pnpm">
+<TabsList>
+  <TabsTrigger value="pnpm">pnpm</TabsTrigger>
+  <TabsTrigger value="npm">npm</TabsTrigger>
+  <TabsTrigger value="yarn">yarn</TabsTrigger>
+</TabsList>
+
+<TabsContent value="pnpm">
+
+```bash
+# Core only — server scripts, edge workers, RSC, loaders
+pnpm add @use-q/api-client
+
+# Plus the React bindings
+pnpm add @use-q/api-client @use-q/api-client-react @tanstack/react-query react react-dom
+```
+
+</TabsContent>
+
+<TabsContent value="npm">
+
+```bash
+npm install @use-q/api-client
+
+npm install @use-q/api-client @use-q/api-client-react @tanstack/react-query react react-dom
+```
+
+</TabsContent>
+
+<TabsContent value="yarn">
+
+```bash
+yarn add @use-q/api-client
+
+yarn add @use-q/api-client @use-q/api-client-react @tanstack/react-query react react-dom
+```
+
+</TabsContent>
+</Tabs>
+
+## Peer dependencies
+
+`@use-q/api-client-react` declares peer dependencies that you must install in your app:
+
+```json
+{
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.0.0",
+    "react": "^18.0.0 || ^19.0.0"
+  }
+}
+```
+
+<Callout type="tip">
+
+If you're already using TanStack Query elsewhere in your app, you can share a
+single `QueryClient` across both — see
+[Bring your own QueryClient](/docs/guides/byo-query-client).
+
+</Callout>
+
+## TypeScript
+
+`use-q` is written in strict TypeScript with `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess`. For the best inference, enable strict mode in your `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "moduleResolution": "bundler",
+    "target": "ES2020"
+  }
+}
+```
+
+## Verifying the install
+
+After installing, you should be able to import from each package without type errors:
+
+```ts
+import { createFetcher, isApiError } from "@use-q/api-client";
+import { createApiClient, ApiErrorBoundary } from "@use-q/api-client-react";
+```
+
+## Running the codegen CLI
+
+The `use-q-codegen` bin is shipped by the `@use-q/api-client-codegen` package. Add it as a dev dependency, then run it:
+
+```bash
+pnpm add -D @use-q/api-client-codegen
+pnpm exec use-q-codegen --input ./openapi.yaml --output ./src/api/schema.ts
+```
+
+Or with npm:
+
+```bash
+npm install -D @use-q/api-client-codegen
+npx use-q-codegen --input ./openapi.yaml --output ./src/api/schema.ts
+```
+
+See [Codegen](/docs/core/codegen) for a full walkthrough.
+
+## Next
+
+Once everything's installed, head to the [Quick Start](/docs/getting-started/quick-start) for a five-minute end-to-end example.

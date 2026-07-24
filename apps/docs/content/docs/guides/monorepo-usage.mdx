@@ -1,0 +1,251 @@
+---
+title: Monorepo usage
+description: Place the schema in a shared @org/api-schema package, share with web and CLI consumers, and wire up codegen.
+---
+
+In a monorepo, you usually want **one schema**, shared by every consumer — web app, mobile app, CLI tools, Node services. `use-q` is designed for this: the schema is just a `.ts` module, easy to publish from a workspace package.
+
+## Recommended layout
+
+```
+my-org/
+├─ apps/
+│  ├─ web/                # React app, uses @use-q/api-client-react
+│  ├─ cli/                # Node CLI, uses @use-q/api-client
+│  └─ worker/             # Cloudflare Worker, uses @use-q/api-client
+├─ packages/
+│  ├─ api-schema/         # The single source of truth
+│  ├─ api-spec/           # (optional) OpenAPI 3.x source for codegen
+│  └─ ui/                 # Shared React components
+├─ pnpm-workspace.yaml
+└─ package.json
+```
+
+`packages/api-schema/` exports `schema` (and any handcrafted types). Everyone else imports it.
+
+## The `api-schema` package
+
+```json
+// packages/api-schema/package.json
+{
+  "name": "@my-org/api-schema",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "codegen": "use-q-codegen --input ../api-spec/openapi.yaml --output ./src/generated.ts",
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@use-q/api-client": "workspace:*"
+  }
+}
+```
+
+```ts
+// packages/api-schema/src/index.ts
+import type { Schema, Tag } from "@use-q/api-client";
+import { schema as generated } from "./generated";
+
+const facilityPosts = (facilityId: string | undefined): Tag => ({
+  type: "posts",
+  ...(facilityId !== undefined ? { id: facilityId } : {}),
+});
+
+// Layer hand-edited tags on top of the codegen output
+export const schema = {
+  ...generated,
+  listPosts: {
+    ...generated.listPosts,
+    tags: ({ params }) => [facilityPosts(params.facilityId)],
+  },
+  createPost: {
+    ...generated.createPost,
+    invalidatesTags: ({ variables }) => [
+      facilityPosts(variables.params?.facilityId),
+    ],
+  },
+} as const satisfies Schema;
+
+// Re-export the generated response/body types (Post, PostInput, …)
+export * from "./generated";
+export type { Schema } from "@use-q/api-client";
+```
+
+The whole point of this file: codegen handles the boring 90% (types, paths, params), you sprinkle tags and invalidation hand-typed. Rerunning codegen never touches your tag wiring.
+
+## Consuming from the web app
+
+```ts
+// apps/web/src/api/client.ts
+import { createApiClient } from "@use-q/api-client-react";
+import { schema } from "@my-org/api-schema";
+
+export const api = createApiClient<typeof schema>(schema, {
+  baseUrl: import.meta.env.VITE_API_BASE_URL,
+  headers: () => ({
+    Authorization: `Bearer ${tokenStore.get() ?? ""}`,
+  }),
+});
+
+export const { useQ, useM, useInfiniteQ, useSuspenseQ, useQClient } = api;
+```
+
+```json
+// apps/web/package.json (excerpt)
+{
+  "dependencies": {
+    "@my-org/api-schema": "workspace:*",
+    "@use-q/api-client-react": "workspace:*",
+    "@tanstack/react-query": "^5.0.0",
+    "react": "^18.0.0"
+  }
+}
+```
+
+## Consuming from a Node CLI
+
+```ts
+// apps/cli/src/index.ts
+import { createFetcher } from "@use-q/api-client";
+import { schema, type Post } from "@my-org/api-schema";
+
+const fetcher = createFetcher({
+  baseUrl: process.env.API_BASE_URL!,
+  headers: () => ({
+    Authorization: `Bearer ${process.env.API_TOKEN!}`,
+  }),
+});
+
+const posts = await fetcher.fetch<Post[]>(schema.listPosts.path, {
+  params: { facilityId: process.argv[2]! },
+});
+
+console.table(posts.map(({ id, title }) => ({ id, title })));
+```
+
+No `QueryClient`, no React. `createFetcher` itself is schema-free — it takes a base URL and raw paths — but the shared schema still earns its keep as the source of route paths and response types (tags just don't do anything in this context).
+
+## Consuming from a Cloudflare Worker
+
+```ts
+// apps/worker/src/index.ts
+import { createFetcher } from "@use-q/api-client";
+import { schema, type Post } from "@my-org/api-schema";
+
+export default {
+  async fetch(req: Request, env: Env) {
+    const fetcher = createFetcher({
+      baseUrl: env.API_BASE_URL,
+    });
+    const posts = await fetcher.fetch<Post[]>(schema.listPosts.path, {
+      params: { facilityId: env.DEFAULT_FACILITY_ID },
+    });
+    return Response.json(posts);
+  },
+} satisfies ExportedHandler<Env>;
+```
+
+## Codegen workflow
+
+<Steps>
+### Put the OpenAPI spec in `packages/api-spec`
+
+```yaml
+# packages/api-spec/openapi.yaml
+openapi: 3.0.3
+info:
+  title: My API
+  version: 0.1.0
+paths:
+  # ...
+```
+
+### Run codegen as a `prebuild` script in `api-schema`
+
+```json
+{
+  "scripts": {
+    "codegen": "use-q-codegen --input ../api-spec/openapi.yaml --output ./src/generated.ts",
+    "prebuild": "pnpm codegen"
+  }
+}
+```
+
+### Wire it into CI so the generated file is always fresh
+
+```yaml
+- run: pnpm --filter @my-org/api-schema codegen
+- run: |
+    if ! git diff --exit-code; then
+      echo "::error::Generated schema is stale. Run pnpm --filter api-schema codegen."
+      exit 1
+    fi
+```
+
+### Layer tags in `src/index.ts`
+
+Never edit `src/generated.ts` by hand — hand-written tag wiring lives only in `src/index.ts`, so rerunning codegen can't clobber it.
+</Steps>
+
+See [Codegen](/docs/core/codegen) for CLI flags.
+
+## TypeScript project references
+
+With strict TS, you'll want a `tsconfig.json` per package and a root `tsconfig.json` with `references`:
+
+```json
+// tsconfig.json (root)
+{
+  "files": [],
+  "references": [
+    { "path": "packages/api-schema" },
+    { "path": "apps/web" },
+    { "path": "apps/cli" },
+    { "path": "apps/worker" }
+  ]
+}
+```
+
+```json
+// packages/api-schema/tsconfig.json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "composite": true
+  },
+  "include": ["src"]
+}
+```
+
+```json
+// apps/web/tsconfig.json
+{
+  "extends": "../../tsconfig.base.json",
+  "references": [{ "path": "../../packages/api-schema" }],
+  "compilerOptions": {
+    "rootDir": "./src",
+    "noEmit": true
+  },
+  "include": ["src"]
+}
+```
+
+This gives you incremental builds and accurate type-checking across the graph.
+
+## Tips
+
+- **One schema, no duplication.** Resist the urge to copy slices of `schema` into individual apps. The whole point of a monorepo is that the source of truth is shared.
+- **`workspace:*` everywhere.** Both for `@my-org/api-schema` and for any `@use-q/*` packages you author.
+- **CI: run codegen, then diff.** This catches OpenAPI drift before merging.
+- **Don't ship `@use-q/api-client-react` to non-React apps.** The schema package depends only on `@use-q/api-client` (the framework-agnostic core).
+
+<Callout type="tip">
+
+If your monorepo has more than one upstream API, give each its own schema package — `@my-org/internal-schema`, `@my-org/billing-schema`, etc. Then build a `createApiClient` per API in the consumer, sharing one `QueryClient`. See [BYO QueryClient](/docs/guides/byo-query-client).
+
+</Callout>

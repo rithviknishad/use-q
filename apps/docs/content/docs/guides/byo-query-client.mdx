@@ -1,0 +1,173 @@
+---
+title: Bring your own QueryClient
+description: Share a single QueryClient across multiple createApiClient instances, persistence, and devtools.
+---
+
+By default `createApiClient` constructs its own `QueryClient`. Most apps are fine with that, but you'll want to bring your own when:
+
+- You have **two or more `createApiClient` instances** for separate APIs and want them to share defaults / cache.
+- You need to set **`defaultOptions`** that all queries inherit.
+- You want to add **persistence** (`@tanstack/query-persist-client-core`).
+- You want **devtools** to inspect every query.
+- You're integrating into an existing TanStack Query setup.
+
+## The option
+
+```ts
+import { QueryClient } from "@tanstack/react-query";
+import { createApiClient } from "@use-q/api-client-react";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+    mutations: {
+      retry: 0,
+    },
+  },
+});
+
+export const api = createApiClient<typeof schema>(schema, {
+  baseUrl: "https://api.example.com",
+  queryClient,
+});
+```
+
+`api.queryClient === queryClient`. Every `useQ` / `useM` runs against this instance, and every other TanStack Query primitive in the app does too.
+
+## Multiple `createApiClient`s
+
+A common case: a tenant-scoped API and a public API in the same app.
+
+```ts
+import { QueryClient } from "@tanstack/react-query";
+import { createApiClient } from "@use-q/api-client-react";
+import { internalSchema } from "./internal/schema";
+import { publicSchema } from "./public/schema";
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: 60_000, retry: 1 },
+  },
+});
+
+export const internal = createApiClient<typeof internalSchema>(internalSchema, {
+  baseUrl: "https://internal.example.com",
+  headers: () => ({ Authorization: `Bearer ${tokenStore.get()}` }),
+  queryClient,
+});
+
+export const public_ = createApiClient<typeof publicSchema>(publicSchema, {
+  baseUrl: "https://public.example.com",
+  queryClient,
+});
+```
+
+Both clients live in one cache. Devtools shows everything. A persister hits all queries at once.
+
+<Callout type="info">
+
+Even though the cache is shared, each `createApiClient` owns its **own `TagRegistry`**. So `internal.useM("createPost", ...)` will not invalidate `public_.useQ("listPosts", ...)` — which is what you want: tag namespaces are scoped to a client.
+
+</Callout>
+
+## Mounting the provider
+
+`QueryClientProvider` accepts any `QueryClient`, including the one you constructed:
+
+```tsx
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "@/api/client";
+
+export function Root({ children }: { children: React.ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
+```
+
+## Persistence
+
+`@tanstack/query-persist-client-core` lets you serialize the cache to `localStorage`, IndexedDB, or a custom store. Combined with a BYO `QueryClient`, it makes for a great offline-first setup.
+
+```bash
+pnpm add @tanstack/query-persist-client-core @tanstack/query-sync-storage-persister
+```
+
+```ts
+import { QueryClient } from "@tanstack/react-query";
+import { persistQueryClient } from "@tanstack/query-persist-client-core";
+import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { gcTime: 24 * 60 * 60_000 }, // 24h
+  },
+});
+
+if (typeof window !== "undefined") {
+  const persister = createSyncStoragePersister({ storage: window.localStorage });
+  persistQueryClient({
+    queryClient,
+    persister,
+    maxAge: 24 * 60 * 60_000,
+    buster: import.meta.env.VITE_APP_VERSION,
+  });
+}
+
+export const api = createApiClient<typeof schema>(schema, {
+  baseUrl: "https://api.example.com",
+  queryClient,
+});
+```
+
+The `buster` is critical — bump it whenever the schema/response shape changes so stale serialized entries don't reanimate.
+
+## Devtools
+
+```bash
+pnpm add -D @tanstack/react-query-devtools
+```
+
+```tsx
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "@/api/client";
+
+export function Root({ children }: { children: React.ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+      {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
+    </QueryClientProvider>
+  );
+}
+```
+
+The devtools panel groups queries by key — `use-q`'s `["api", method, path, params]` shape makes the tree very easy to navigate.
+
+## Sharing across React + non-React
+
+If you have a plain TypeScript module that needs to read from or write to the cache (e.g. an analytics hook reacting to mutations), use the same `queryClient` directly:
+
+```ts
+import { queryClient } from "@/api/client";
+
+queryClient.getQueryCache().subscribe((event) => {
+  if (event.type === "updated" && event.action.type === "success") {
+    analytics.track("query_succeeded", { key: event.query.queryKey });
+  }
+});
+```
+
+Combine with the `queryKeys` factory to scope subscriptions to specific routes.
+
+## Tips
+
+- **One `QueryClient` per app.** Don't construct it inside a component; that creates a new cache on every render.
+- **Put it in a module-level constant** (or in a server-component-aware factory for Next.js).
+- **Skip `BYO` for simple apps.** The default `QueryClient` is fine and has zero ceremony.

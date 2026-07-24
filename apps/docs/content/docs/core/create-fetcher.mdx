@@ -1,0 +1,279 @@
+---
+title: createFetcher
+description: Use the framework-agnostic fetcher from @use-q/api-client standalone — in Node CLIs, edge workers, RSC, and server actions.
+---
+
+`createFetcher` is the framework-agnostic core of `use-q`. It takes a configuration object (base URL, headers, error handling) and returns a small `FetcherInstance` whose `fetch` method resolves URLs, encodes bodies, and normalizes errors. Use it anywhere a `QueryClient` would be overkill — Node scripts, edge workers, server actions, React Server Components, route loaders.
+
+```ts
+import { createFetcher } from "@use-q/api-client";
+import type { Post } from "./schema";
+
+const fetcher = createFetcher({
+  baseUrl: "https://api.example.com",
+});
+
+const posts = await fetcher.fetch<Post[]>("/facilities/{facilityId}/posts", {
+  params: { facilityId: "f1" },
+});
+//    ^? Post[]
+```
+
+<Callout type="info">
+
+`createFetcher` doesn't take a schema — it's a low-level, path-based HTTP client. Route-aware, schema-typed calls are what `createApiClient` and its hooks layer on top (they call this same fetcher internally). See [createApiClient](/docs/react/create-api-client).
+
+</Callout>
+
+## Returned shape
+
+`createFetcher` returns a `FetcherInstance`:
+
+```ts
+interface FetcherInstance {
+  baseUrl: string;
+  fetch<TResponse = unknown>(
+    path: string,
+    options?: {
+      method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; // default "GET"
+      params?: Record<string, string | number | boolean>;   // fills {placeholders}
+      searchParams?: SearchParams;
+      body?: unknown;
+      signal?: AbortSignal;
+      headers?: HeadersInit;                                // per-call overrides
+    },
+  ): Promise<TResponse>;
+}
+```
+
+The `path` may contain `{param}` placeholders, which are filled (URI-encoded) from `params` — a missing placeholder value throws. `searchParams` are appended to the URL; `undefined`/`null` values are skipped and array values become repeated keys (`?id=1&id=2`). For `POST`/`PUT`/`PATCH`/`DELETE` with a `body`, the body is `JSON.stringify`-ed and `Content-Type: application/json` is added unless you supplied your own. Empty response bodies resolve to `undefined`; JSON responses are parsed when the content-type is `application/json`, everything else resolves as text.
+
+If `path` is an absolute `http(s)://` URL, `baseUrl` joining is skipped and the URL is used as-is.
+
+HTTP failures throw an `ApiError` — see [Error handling](/docs/core/error-handling).
+
+## Options
+
+### `baseUrl`
+
+Prepended to every request path. Trailing slashes are normalized.
+
+```ts
+createFetcher({ baseUrl: "https://api.example.com/v1" });
+```
+
+### `fetch`
+
+Inject a custom `fetch` implementation. Useful for tests, custom runtimes, or wrapping fetch with retry/auth/logging middleware. Defaults to `globalThis.fetch`.
+
+```ts
+import { fetch as undiciFetch } from "undici";
+
+const fetcher = createFetcher({
+  baseUrl: "https://api.example.com",
+  fetch: undiciFetch,
+});
+```
+
+### `headers`
+
+Headers attached to every request. Any `HeadersInit` works (plain object, `Headers` instance, entry array), or a sync/async function returning one — the function is called and awaited on every request, so it's a great place to read a token from a store.
+
+```ts
+// Static
+createFetcher({
+  baseUrl: "https://api.example.com",
+  headers: {
+    "x-api-version": "2026-01-01",
+  },
+});
+
+// Dynamic / async
+createFetcher({
+  baseUrl: "https://api.example.com",
+  headers: async () => ({
+    Authorization: `Bearer ${await getAccessToken()}`,
+    "x-tenant-id": currentTenantId(),
+  }),
+});
+```
+
+Per-call `headers` overrides win over defaults:
+
+```ts
+await fetcher.fetch<Post>("/facilities/{facilityId}/posts/{postId}", {
+  params: { facilityId: "f1", postId: "p1" },
+  headers: { "x-debug": "1" },
+});
+```
+
+### `parseError`
+
+Convert error responses into your domain's error shape. `parseError` runs only for non-2xx responses and receives the raw `Response` plus the already-parsed body:
+
+```ts
+parseError?: (input: { response: Response; data: unknown }) => unknown;
+```
+
+Whatever you return becomes the thrown `ApiError`'s `.data`. If you return an `ApiError` instance, it's thrown as-is (letting you fully control the error object).
+
+```ts
+import { isApiError } from "@use-q/api-client";
+
+interface MyApiError {
+  code: string;
+  detail: string;
+  fieldErrors?: Record<string, string>;
+}
+
+const fetcher = createFetcher({
+  baseUrl: "https://api.example.com",
+  parseError: ({ response, data }) => {
+    const body = data as Partial<MyApiError> | null;
+    return {
+      code: body?.code ?? "unknown",
+      detail: body?.detail ?? response.statusText,
+      fieldErrors: body?.fieldErrors,
+    } satisfies MyApiError;
+  },
+});
+
+try {
+  await fetcher.fetch("/facilities/{facilityId}/posts", {
+    method: "POST",
+    params: { facilityId: "f1" },
+    body: { title: "" },
+  });
+} catch (err) {
+  if (isApiError<MyApiError>(err)) {
+    console.error(err.data.code, err.data.fieldErrors);
+  }
+}
+```
+
+### `onError`
+
+A side-effecting hook called for every failure, after error normalization. For HTTP failures it receives the `ApiError` about to be thrown; for network failures (fetch itself rejecting) it receives the raw error. Useful for telemetry or auth fan-out.
+
+```ts
+import { isApiError } from "@use-q/api-client";
+
+createFetcher({
+  baseUrl: "https://api.example.com",
+  onError: (err) => {
+    if (isApiError(err) && err.status === 401) {
+      logoutAndRedirect();
+    }
+    telemetry.captureException(err);
+  },
+});
+```
+
+`onError` receives a single argument — the error. HTTP `ApiError`s carry `url`, `method`, `status`, and `statusText` fields, so contextual data is available on the error itself.
+
+## Recipes
+
+### Node CLI
+
+```ts
+#!/usr/bin/env node
+import { createFetcher } from "@use-q/api-client";
+import type { Post } from "./schema.js";
+
+const fetcher = createFetcher({
+  baseUrl: process.env.API_BASE_URL!,
+  headers: () => ({
+    Authorization: `Bearer ${process.env.API_TOKEN!}`,
+  }),
+});
+
+const posts = await fetcher.fetch<Post[]>("/facilities/{facilityId}/posts", {
+  params: { facilityId: process.argv[2]! },
+});
+
+console.table(posts.map(({ id, title }) => ({ id, title })));
+```
+
+### Cloudflare Worker
+
+```ts
+import { createFetcher } from "@use-q/api-client";
+import type { Post } from "./schema";
+
+export default {
+  async fetch(req: Request, env: Env): Promise<Response> {
+    const fetcher = createFetcher({
+      baseUrl: env.API_BASE_URL,
+      fetch: fetch, // Workers global fetch
+      headers: { "x-internal": env.INTERNAL_KEY },
+    });
+
+    const posts = await fetcher.fetch<Post[]>("/facilities/{facilityId}/posts", {
+      params: { facilityId: "f1" },
+    });
+    return Response.json(posts);
+  },
+} satisfies ExportedHandler<Env>;
+```
+
+### Next.js Server Action
+
+```ts
+"use server";
+
+import { createFetcher } from "@use-q/api-client";
+import { cookies } from "next/headers";
+import type { Post } from "@/api/schema";
+
+const fetcher = createFetcher({
+  baseUrl: process.env.API_BASE_URL!,
+  headers: async () => ({
+    Authorization: `Bearer ${cookies().get("token")?.value ?? ""}`,
+  }),
+});
+
+export async function createPost(facilityId: string, formData: FormData) {
+  return fetcher.fetch<Post>("/facilities/{facilityId}/posts", {
+    method: "POST",
+    params: { facilityId },
+    body: {
+      title: String(formData.get("title")),
+      body: String(formData.get("body")),
+    },
+  });
+}
+```
+
+### React Router data loader
+
+```ts
+import { createFetcher } from "@use-q/api-client";
+import type { LoaderFunctionArgs } from "react-router-dom";
+import type { Post } from "./schema";
+
+const fetcher = createFetcher({
+  baseUrl: import.meta.env.VITE_API_BASE_URL,
+});
+
+export async function postsLoader({ params, request }: LoaderFunctionArgs) {
+  return fetcher.fetch<Post[]>("/facilities/{facilityId}/posts", {
+    params: { facilityId: params.facilityId! },
+    signal: request.signal,
+  });
+}
+```
+
+<Callout type="tip">
+
+Want to hydrate loader data into a React-side cache? See [SSR & loaders](/docs/guides/ssr-and-loaders).
+
+</Callout>
+
+## Why not just use `fetch`?
+
+You get four things `fetch` doesn't give you:
+
+1. **URL building.** Path placeholders are filled and URI-encoded (with a loud error when a value is missing), `undefined`/`null` search params are dropped, arrays become repeated keys, JSON bodies are serialized with the right `Content-Type`.
+2. **Consistent error shape.** Non-2xx responses always throw an `ApiError` (optionally shaped by your `parseError`).
+3. **Centralized headers and error hooks.** Async header factories and a single `onError` for telemetry/auth, instead of copy-pasted boilerplate per call.
+4. **A swap-in path to React.** The same `CreateFetcherOptions` are accepted by `createApiClient`, which pairs the fetcher with a schema for fully-typed hooks and caching.

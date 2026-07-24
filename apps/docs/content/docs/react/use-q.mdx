@@ -1,0 +1,223 @@
+---
+title: useQ
+description: Fetch a route as a typed query. select, enabled, staleTime, refetchInterval, and more.
+---
+
+`useQ` is the read-side hook. It's a thin, typed wrapper around `useQuery` from TanStack Query — same return shape, same options, with parameters constrained to a schema route.
+
+```tsx
+const { data, isLoading, error, refetch } = useQ("listPosts", {
+  params: { facilityId: "f1" },
+  searchParams: { search: "" },
+});
+//    ^? data: Post[] | undefined
+```
+
+## Signature
+
+```ts
+function useQ<RouteId extends keyof TSchema & string>(
+  routeId: RouteId,
+  input?: RouteInput<TSchema[RouteId]>,
+  options?: UseQOptions<RouteResponse<TSchema[RouteId]>>,
+): UseQueryResult<RouteResponse<TSchema[RouteId]>>;
+```
+
+Three positional arguments:
+
+1. `routeId` — a key of your schema.
+2. `input` — the request input: `{ params?, searchParams? }`. `params` fills the `{placeholder}` segments of the route's `path`; `searchParams` becomes the query string.
+3. `options` — any TanStack `useQuery` options except `queryKey` and `queryFn` (the hook owns those).
+
+## Input
+
+For a route with path params and/or search params, pass them via `input`:
+
+```ts
+useQ("getPost", {
+  params: { facilityId: "f1", postId: "p1" },
+});
+
+useQ("listPosts", {
+  params: { facilityId: "f1" },
+  searchParams: { search: "react" }, // optional
+});
+```
+
+A route with no input can omit the argument entirely: `useQ("listFacilities")`.
+
+## `UseQOptions`
+
+Options are the third argument — a separate object from the input:
+
+```ts
+type UseQOptions<TData> = Omit<
+  UseQueryOptions<TData, DefaultError, TData, QueryKey>,
+  "queryKey" | "queryFn"
+>;
+```
+
+That means everything `useQuery` supports is available: `enabled`, `select`, `staleTime`, `gcTime`, `refetchInterval`, `refetchOnWindowFocus`, `refetchOnReconnect`, `retry`, `placeholderData`, `initialData`, `meta`, and so on.
+
+### `enabled` — conditional fetching
+
+Guard a query on data from another query, route params, or feature flags:
+
+```tsx
+function PostDetail({ facilityId, postId }: { facilityId: string; postId?: string }) {
+  const post = useQ(
+    "getPost",
+    { params: { facilityId, postId: postId! } },
+    { enabled: Boolean(postId) },
+  );
+  if (!postId) return <p>Pick a post</p>;
+  return <h1>{post.data?.title}</h1>;
+}
+```
+
+### `select` — project the response
+
+Avoid re-rendering components that only need a slice of the response. `select` is memoized by TanStack Query, so the result is referentially stable as long as the selector returns the same value.
+
+```tsx
+const titles = useQ(
+  "listPosts",
+  { params: { facilityId: "f1" } },
+  { select: (posts) => posts.map((p) => p.title) },
+);
+// titles.data is now string[]
+```
+
+A common pattern: derive a normalized lookup map without forcing the rest of the app to rebuild it.
+
+```tsx
+const postsById = useQ(
+  "listPosts",
+  { params: { facilityId: "f1" } },
+  { select: (posts) => Object.fromEntries(posts.map((p) => [p.id, p])) },
+);
+```
+
+### `staleTime` — when to consider data fresh
+
+Defaults to `0` (always stale → refetch on mount / focus). Increase it for slow-changing data:
+
+```tsx
+const settings = useQ(
+  "getSettings",
+  { params: { facilityId: "f1" } },
+  { staleTime: 5 * 60_000 },
+);
+```
+
+### `refetchInterval` — polling
+
+```tsx
+const jobStatus = useQ(
+  "getJobStatus",
+  { params: { jobId } },
+  {
+    refetchInterval: (query) =>
+      query.state.data?.status === "running" ? 1000 : false,
+  },
+);
+```
+
+Pass a function to stop polling once a terminal state is reached.
+
+### `refetchOnWindowFocus` / `refetchOnReconnect`
+
+Both default to `true`. Disable for queries where stale data is acceptable but a flash of refetch would be jarring:
+
+```tsx
+useQ("getCurrentUser", undefined, {
+  staleTime: 60_000,
+  refetchOnWindowFocus: false,
+});
+```
+
+### `retry`
+
+Standard TanStack Query semantics — pass a number or a predicate. Narrow the error with `isApiError`:
+
+```tsx
+import { isApiError } from "@use-q/api-client-react";
+
+useQ(
+  "getPost",
+  { params: { facilityId, postId } },
+  {
+    retry: (count, error) => {
+      if (isApiError(error) && error.status === 404) return false;
+      return count < 3;
+    },
+  },
+);
+```
+
+### `placeholderData`
+
+Render something while the real data loads:
+
+```tsx
+useQ(
+  "listPosts",
+  { params: { facilityId: "f1" } },
+  { placeholderData: [] as Post[] },
+);
+```
+
+Or — for "keep previous data" while paginating — use `keepPreviousData` from TanStack Query:
+
+```tsx
+import { keepPreviousData } from "@tanstack/react-query";
+
+useQ(
+  "listPosts",
+  { params: { facilityId }, searchParams: { page } },
+  { placeholderData: keepPreviousData },
+);
+```
+
+### `initialData`
+
+Hydrate the cache from a server-fetched payload (RSC / loader):
+
+```tsx
+useQ(
+  "listPosts",
+  { params: { facilityId: "f1" } },
+  { initialData: () => loaderData.posts },
+);
+```
+
+See [SSR & loaders](/docs/guides/ssr-and-loaders) for the full pattern.
+
+## Returned shape
+
+`useQ` returns TanStack Query's `UseQueryResult` — `{ data, error, isLoading, isFetching, isError, isSuccess, refetch, … }`. Failures thrown by the fetcher are `ApiError` instances; use `isApiError(error)` to narrow before reading `status`, `data`, etc. See [Error handling](/docs/core/error-handling).
+
+## Tag registration
+
+After data arrives, `useQ` resolves the route's `tags` (static array or `({ response, params }) => Tag[]` function) and registers them with the client's `TagRegistry` — once per query key + response identity. On unmount, the registration is removed. This is what lets mutations and `useQClient().invalidateTag` find the query later. See [Tag invalidation](/docs/guides/tag-invalidation).
+
+## Query keys
+
+Every `useQ` call uses the key:
+
+```ts
+["api", method, resolvedPath, sortedSearchParams];
+// e.g. ["api", "GET", "/facilities/f1/posts", { search: "" }]
+```
+
+This shape makes prefix invalidation natural. See [Query keys](/docs/guides/query-keys).
+
+## Cancellation
+
+`useQ` already passes an `AbortSignal` to the fetcher when the component unmounts or the key changes — a custom `fetch` implementation receives it via `RequestInit.signal`. Don't pass `signal` manually; let TanStack Query own it.
+
+<Callout type="tip">
+
+Want to render inside `<Suspense>`? Use [`useSuspenseQ`](/docs/react/use-suspense-q) instead — same signature, suspense semantics.
+
+</Callout>

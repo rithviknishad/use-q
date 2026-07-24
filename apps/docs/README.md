@@ -1,46 +1,40 @@
 # use-q docs
 
-Documentation site for [use-q](https://github.com/rithviknishad/use-q) — a type-safe API client for TypeScript and React, built on top of TanStack Query v5.
+Documentation site for [use-q](https://github.com/rithviknishad/use-q), served at
+[use-q.dev](https://use-q.dev).
 
-Built with [Astro](https://astro.build) and [Starlight](https://starlight.astro.build).
+Built with [Next.js](https://nextjs.org) (App Router, static export),
+[shadcn/ui](https://ui.shadcn.com) (`radix-vega` style), and Tailwind CSS v4 —
+themed to match [careui.ohc.network](https://careui.ohc.network)
+(Figtree + Geist Mono, emerald primary).
 
-## Running locally
-
-From the monorepo root:
+## Development
 
 ```bash
 pnpm install
-pnpm --filter docs dev
+pnpm dev     # http://localhost:3000
+pnpm build   # static export to out/
 ```
 
-Or from this directory:
+## Project layout
 
-```bash
-pnpm dev
+```
+content/docs/            MDX documentation pages (the content)
+src/config/docs-nav.ts   Sidebar navigation / page ordering (feeds search & pagers)
+src/components/docs/     Docs UI (sidebar, TOC, search, MDX components)
+src/components/ui/       shadcn/ui primitives
+src/app/                 Landing page + docs layout / catch-all MDX renderer
 ```
 
-The dev server starts on [http://localhost:4321](http://localhost:4321).
+## Authoring
 
-## Building
+- Pages are MDX files under `content/docs/` with `title`/`description` frontmatter.
+- Register new pages in `src/config/docs-nav.ts` so they appear in the sidebar,
+  search, and prev/next pagers.
+- Components available in MDX without imports: `Callout`, `CardGrid`,
+  `LinkCard`, `Steps`, `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent`, `Badge`.
 
-```bash
-pnpm --filter docs build
-```
+## Deployment
 
-The static site is emitted to `apps/docs/dist/`.
-
-## Where pages live
-
-All Markdown/MDX content lives under `src/content/docs/`:
-
-- `getting-started/` — installation, quick-start, anatomy of a schema
-- `core/` — the framework-agnostic `createFetcher` and codegen
-- `react/` — `createApiClient`, hooks (`useQ`, `useM`, etc.), and `<ApiErrorBoundary>`
-- `guides/` — query keys, tag invalidation, optimistic updates, SSR, BYO query client, monorepo usage
-- `api-reference/` — typed reference for the public API surface
-
-Sidebar groups are auto-generated per directory in `astro.config.mjs`.
-
-## Deploying
-
-The site is built as a static export. `wrangler.toml` configures Cloudflare Pages with `pages_build_output_dir = "dist"`.
+Deployed to Cloudflare Pages via `wrangler.toml` — build outputs a fully static
+site to `out/`.

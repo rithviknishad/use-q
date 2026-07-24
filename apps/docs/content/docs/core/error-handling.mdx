@@ -1,0 +1,207 @@
+---
+title: Error handling
+description: ApiError, isApiError, custom parseError shapes, and global error hooks.
+---
+
+Every non-2xx response from a `use-q` fetcher (or hook) throws an `ApiError`. That's it — one shape, every time, fully typed.
+
+## `ApiError`
+
+`ApiError` is a regular `Error` subclass with extra fields:
+
+```ts
+class ApiError<TData = unknown> extends Error {
+  readonly name: "ApiError";
+  readonly status: number;
+  readonly statusText: string;
+  readonly data: TData;
+  readonly url: string;
+  readonly method: string;
+}
+```
+
+The default `message` is `"METHOD url failed with status statusText"` (e.g. `"GET https://api.example.com/posts/missing failed with 404 Not Found"`).
+
+The generic `TData` is whatever your `parseError` returns. Without `parseError`, `data` is the parsed response body — JSON when the response's content-type is `application/json`, the raw text otherwise, or `undefined` for an empty body.
+
+## `isApiError` type guard
+
+Use `isApiError` to narrow errors safely:
+
+```ts
+import { isApiError } from "@use-q/api-client";
+
+try {
+  await fetcher.fetch("/facilities/{facilityId}/posts/{postId}", {
+    params: { facilityId: "f1", postId: "missing" },
+  });
+} catch (err) {
+  if (isApiError(err)) {
+    console.error(err.status, err.url, err.data);
+  } else {
+    throw err;
+  }
+}
+```
+
+In React, the same guard works inside `useM`'s `onError` (it's also re-exported from `@use-q/api-client-react` and available as `api.isApiError` on the client object):
+
+```tsx
+import { isApiError } from "@use-q/api-client-react";
+
+const createPost = useM("createPost", {
+  onError: (err) => {
+    if (isApiError(err) && err.status === 422) {
+      toast.error("Validation failed");
+    }
+  },
+});
+
+createPost.mutate({ params: { facilityId }, body: { title, body } });
+```
+
+## Customizing the parsed shape
+
+Most APIs return structured error bodies. Normalize them with `parseError` and narrow with the type guard's generic, `isApiError<T>`:
+
+```ts
+interface ApiProblem {
+  type: string;
+  title: string;
+  detail: string;
+  errors?: Record<string, string[]>;
+}
+
+const fetcher = createFetcher({
+  baseUrl: "https://api.example.com",
+  parseError: ({ response, data }) => {
+    const json = data as Partial<ApiProblem> | null;
+    return {
+      type: json?.type ?? "about:blank",
+      title: json?.title ?? response.statusText,
+      detail: json?.detail ?? "",
+      errors: json?.errors,
+    } satisfies ApiProblem;
+  },
+});
+```
+
+`parseError` receives `{ response, data }` — the raw `Response` plus the already-parsed body (JSON when possible, text otherwise). Its return value becomes `ApiError.data`. Downstream catch blocks narrow with `isApiError<ApiProblem>`:
+
+```ts
+catch (err) {
+  if (isApiError<ApiProblem>(err)) {
+    if (err.data.errors) {
+      for (const [field, messages] of Object.entries(err.data.errors)) {
+        form.setError(field, { message: messages[0] });
+      }
+    }
+  }
+}
+```
+
+The same `parseError` option is accepted by `createApiClient`, so hook errors carry the same shape:
+
+```ts
+const api = createApiClient(schema, {
+  baseUrl: "https://api.example.com",
+  parseError: ({ response, data }) => /* … */,
+});
+```
+
+## Global error handling
+
+`onError` runs for every failure across every route. It's the right place to put cross-cutting concerns.
+
+### Logout on 401
+
+```ts
+import { isApiError } from "@use-q/api-client";
+
+const fetcher = createFetcher({
+  baseUrl: "https://api.example.com",
+  onError: (err) => {
+    if (isApiError(err) && err.status === 401) {
+      tokenStore.clear();
+      window.location.assign("/login");
+    }
+  },
+});
+```
+
+### Telemetry
+
+```ts
+import * as Sentry from "@sentry/browser";
+import { isApiError } from "@use-q/api-client";
+
+createFetcher({
+  baseUrl: "https://api.example.com",
+  onError: (err) => {
+    Sentry.captureException(err, {
+      tags: {
+        method: isApiError(err) ? err.method : "unknown",
+        status: isApiError(err) ? String(err.status) : "network",
+      },
+      extra: { url: isApiError(err) ? err.url : undefined },
+    });
+  },
+});
+```
+
+`onError` receives a single argument — the error itself. For HTTP failures that's the normalized `ApiError` (so `method`, `url`, `status` are right there on it); for network failures it's the raw thrown error.
+
+### Per-call `onError` (React)
+
+`useM` also accepts TanStack Query's `onError` callback. Both run — the fetcher-level `onError` first, then the mutation's:
+
+```tsx
+useM("createPost", {
+  onError: (err) => toast.error(`Couldn't save: ${err.message}`),
+});
+```
+
+## Network errors
+
+A thrown `TypeError: Failed to fetch` (no response) propagates _without_ being wrapped — your `onError` still runs, but `isApiError` returns `false`. Handle both cases:
+
+```ts
+catch (err) {
+  if (isApiError(err)) {
+    // HTTP-level error
+  } else if (err instanceof TypeError) {
+    // Network down, CORS, DNS…
+  } else {
+    throw err;
+  }
+}
+```
+
+## React: `<ApiErrorBoundary>`
+
+When you use `useSuspenseQ`, errors stop bubbling through render — they bubble to the nearest error boundary. `ApiErrorBoundary` catches `ApiError`s specifically (anything else is re-thrown to the next boundary) and hands your `fallback` a pre-narrowed error plus a `reset`:
+
+```tsx
+import { ApiErrorBoundary } from "@use-q/api-client-react";
+
+<ApiErrorBoundary
+  fallback={({ error, reset }) => (
+    <div role="alert">
+      <p>{error.status === 404 ? "Not found" : "Something broke"}</p>
+      <button onClick={reset}>Try again</button>
+    </div>
+  )}
+>
+  <Suspense fallback={<p>Loading…</p>}>
+    <PostList facilityId="f1" />
+  </Suspense>
+</ApiErrorBoundary>;
+```
+
+The `fallback` receives `{ error, reset }` — `error` is already an `ApiError<unknown>`, so no guard is needed inside. See [`<ApiErrorBoundary>`](/docs/react/api-error-boundary) for `reset()` semantics.
+
+<Callout type="warning">
+
+`parseError` should return a value, not throw. Its return value becomes `ApiError.data` — unless you return an `ApiError` instance, in which case that instance is thrown as-is (useful when you want to control the message or subclass `ApiError` yourself).
+
+</Callout>

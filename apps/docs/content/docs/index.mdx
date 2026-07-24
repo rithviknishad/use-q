@@ -1,0 +1,102 @@
+---
+title: Introduction
+description: use-q is a type-safe, schema-driven API client for TypeScript and React, built on TanStack Query v5.
+---
+
+`use-q` is a thin, opinionated layer that turns an OpenAPI-style schema into fully typed, cache-aware React hooks — without giving up the power of TanStack Query v5.
+
+You describe your API once as a plain object of `RouteDefinition`s. From that single source of truth, `use-q` infers path params, search params, request bodies, and response shapes, and wires up cache invalidation automatically through schema-defined tags. No `any` leaks into your components, and no query keys are written by hand.
+
+## The packages
+
+| Package | What it provides |
+| --- | --- |
+| `@use-q/api-client` | Framework-agnostic core: `createFetcher`, the `Schema` / `RouteDefinition` types, and error helpers. Zero runtime dependencies. |
+| `@use-q/api-client-react` | `createApiClient` and the React hooks (`useQ`, `useM`, `useInfiniteQ`, `useSuspenseQ`, `useQClient`) on top of TanStack Query v5. |
+| `@use-q/api-client-codegen` | Generates a typed schema from an OpenAPI 3.x spec. Ships the `use-q-codegen` CLI bin. |
+
+The core runs anywhere `fetch` does — Node, Bun, Deno, edge workers, or the browser — so you can share one schema between server actions, loaders, scripts, and your React app.
+
+## A quick taste
+
+Define a schema and create a client:
+
+```ts
+import { createApiClient } from "@use-q/api-client-react";
+import type { RouteDefinition } from "@use-q/api-client";
+
+interface Post {
+  id: string;
+  title: string;
+}
+
+const schema = {
+  listPosts: {
+    method: "GET",
+    path: "/facilities/{facilityId}/posts",
+    tags: ["posts"],
+  } satisfies RouteDefinition<{ facilityId: string }, never, never, Post[]>,
+  createPost: {
+    method: "POST",
+    path: "/facilities/{facilityId}/posts",
+    invalidatesTags: ["posts"],
+  } satisfies RouteDefinition<{ facilityId: string }, never, { title: string }, Post>,
+} as const;
+
+export const api = createApiClient(schema, {
+  baseUrl: "https://api.example.com",
+});
+
+export const { useQ, useM, useQClient } = api;
+```
+
+Then use it in a component:
+
+```tsx
+function PostList({ facilityId }: { facilityId: string }) {
+  const { data, isLoading } = api.useQ("listPosts", { params: { facilityId } });
+  const createPost = api.useM("createPost");
+
+  if (isLoading) return <p>Loading…</p>;
+  return (
+    <>
+      {data?.map((p) => <article key={p.id}>{p.title}</article>)}
+      <button
+        onClick={() =>
+          createPost.mutate({ params: { facilityId }, body: { title: "New post" } })
+        }
+      >
+        Add
+      </button>
+    </>
+  );
+}
+```
+
+That's it — the list refetches automatically after the mutation, because `createPost.invalidatesTags` matches `listPosts.tags`.
+
+## Design principles
+
+- **End-to-end type safety.** Path params, search params, request bodies, and response shapes are all inferred from a single `RouteDefinition` map.
+- **Framework-agnostic core.** `@use-q/api-client` is a tiny zero-dependency fetcher that runs in Node, Bun, Deno, edge workers, or the browser. Use it from server actions, loaders, or scripts — no React required.
+- **Schema-driven invalidation.** Tag routes with `tags` / `invalidatesTags` and the React layer takes care of the rest. Mutations automatically refresh the right queries through a shared `TagRegistry`.
+- **Optimistic updates that compose.** Update multiple caches per mutation with snapshot/rollback semantics built in. Combine with `additionalInvalidatesTags` for arbitrary fan-out.
+- **OpenAPI codegen.** Generate a typed schema directly from an OpenAPI 3.x spec with `use-q-codegen` from `@use-q/api-client-codegen`. Pagination is detected automatically.
+- **Bring your own QueryClient.** Reuse a single `QueryClient` across multiple `createApiClient` instances, or hook into persistence and devtools — `use-q` never gets in the way.
+
+## Where to next?
+
+<CardGrid>
+  <LinkCard title="Install" href="/docs/getting-started/installation">
+    Install `@use-q/api-client` and the React layer
+  </LinkCard>
+  <LinkCard title="5-minute quick start" href="/docs/getting-started/quick-start">
+    Build a typed list + create flow
+  </LinkCard>
+  <LinkCard title="Define a schema" href="/docs/getting-started/schema-definition">
+    Anatomy of a `RouteDefinition`
+  </LinkCard>
+  <LinkCard title="API reference" href="/docs/api-reference/route-definition">
+    Browse every option and hook
+  </LinkCard>
+</CardGrid>

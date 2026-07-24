@@ -1,0 +1,200 @@
+---
+title: createApiClient
+description: createApiClient(schema, options) — turn a schema into hooks, utilities, and a typed cache.
+---
+
+`createApiClient` is the entry point for the React layer. Given a `Schema`, it returns a bundle of hooks and helpers that share one `QueryClient`, one fetcher, and one `TagRegistry`.
+
+```ts
+import { createApiClient } from "@use-q/api-client-react";
+import { schema } from "./schema";
+
+export const api = createApiClient(schema, {
+  baseUrl: "https://api.example.com",
+});
+```
+
+The schema is passed as a runtime value (not just a type parameter) because the hooks read `tags`, `invalidatesTags`, and `pagination` from it at runtime. Inference is automatic — no explicit generic needed.
+
+## Options
+
+`createApiClient` accepts everything `createFetcher` does, plus an optional `queryClient`:
+
+```ts
+interface CreateApiClientOptions {
+  baseUrl: string;
+  headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);
+  fetch?: typeof fetch;
+  parseError?: (input: { response: Response; data: unknown }) => unknown;
+  onError?: (error: unknown) => void;
+  queryClient?: QueryClient;
+}
+```
+
+See [Core options](/docs/api-reference/create-fetcher-options) for the fetcher-side fields. The React-only `queryClient` is documented in [Bring your own QueryClient](/docs/guides/byo-query-client).
+
+## Returned shape
+
+```ts
+interface ApiClient<TSchema extends Schema> {
+  // Hooks
+  useQ: /* useQ bound to TSchema */;
+  useM: /* useM bound to TSchema */;
+  useInfiniteQ: /* useInfiniteQ bound to TSchema */;
+  useSuspenseQ: /* useSuspenseQ bound to TSchema */;
+  useQClient: /* useQClient bound to TSchema */;
+
+  // Plumbing
+  fetcher: FetcherInstance;
+  queryClient: QueryClient;
+  queryKeys: QueryKeysFactory<TSchema>;
+  schema: TSchema;
+  isApiError: typeof isApiError;
+
+  // Internal — exposed for advanced cases
+  _tagRegistry: TagRegistry;
+}
+```
+
+Note that `ApiErrorBoundary` is not part of this object — it's a component exported from the package itself:
+
+```ts
+import { ApiErrorBoundary } from "@use-q/api-client-react";
+```
+
+The hook references are **stable across renders** — they're created once in the closure, so it's safe to destructure them at module scope:
+
+```ts
+export const { useQ, useM, useInfiniteQ, useQClient } = api;
+```
+
+## Recommended pattern: `src/api/client.ts`
+
+Create the client in one place and re-export hooks so consumers never see the bare `api.useQ(...)` form:
+
+```ts
+// src/api/client.ts
+import { createApiClient } from "@use-q/api-client-react";
+import { schema } from "./schema";
+
+export const api = createApiClient(schema, {
+  baseUrl: import.meta.env.VITE_API_BASE_URL,
+  headers: () => ({
+    Authorization: `Bearer ${tokenStore.get() ?? ""}`,
+  }),
+  onError: (err) => {
+    if (api.isApiError(err) && err.status === 401) tokenStore.clear();
+  },
+});
+
+export const {
+  useQ,
+  useM,
+  useInfiniteQ,
+  useSuspenseQ,
+  useQClient,
+  queryClient,
+} = api;
+```
+
+Components then read hooks with zero ceremony:
+
+```tsx
+import { useQ } from "@/api/client";
+
+function PostList() {
+  const { data } = useQ("listPosts", { params: { facilityId: "f1" } });
+  return <ul>{data?.map((p) => <li key={p.id}>{p.title}</li>)}</ul>;
+}
+```
+
+## Wrapping your app
+
+`createApiClient` constructs its own `QueryClient`, which you pass to `QueryClientProvider`:
+
+```tsx
+import { QueryClientProvider } from "@tanstack/react-query";
+import { api } from "@/api/client";
+
+export function Root({ children }: { children: React.ReactNode }) {
+  return (
+    <QueryClientProvider client={api.queryClient}>
+      {children}
+    </QueryClientProvider>
+  );
+}
+```
+
+If you'd rather share a `QueryClient` with something else (e.g. another `createApiClient` instance, or a non-`use-q` query), pass it via `options.queryClient`:
+
+```ts
+import { QueryClient } from "@tanstack/react-query";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: 30_000, refetchOnWindowFocus: false },
+  },
+});
+
+const api = createApiClient(schema, {
+  baseUrl: "https://api.example.com",
+  queryClient,
+});
+```
+
+See [BYO QueryClient](/docs/guides/byo-query-client) for the full discussion.
+
+## Normalizing error payloads with `parseError`
+
+`parseError` receives the failed `Response` plus its already-parsed body and returns the value stored on `ApiError.data`. (Return an `ApiError` instance to replace the error entirely.)
+
+```ts
+interface ApiProblem {
+  type: string;
+  title: string;
+  detail: string;
+}
+
+export const api = createApiClient(schema, {
+  baseUrl: "https://api.example.com",
+  parseError: ({ response, data }): ApiProblem => {
+    const problem = data as Partial<ApiProblem> | null;
+    return {
+      type: problem?.type ?? "about:blank",
+      title: problem?.title ?? response.statusText,
+      detail: problem?.detail ?? "",
+    };
+  },
+});
+```
+
+Hooks surface failures as `ApiError` — narrow with `isApiError` and read the normalized payload from `error.data`. See [Error handling](/docs/core/error-handling).
+
+## Multiple clients
+
+You can call `createApiClient` more than once per app — useful for unrelated APIs (e.g. internal API + public API, or distinct microservices):
+
+```ts
+export const internal = createApiClient(internalSchema, {
+  baseUrl: "https://internal.example.com",
+  queryClient,
+});
+
+export const public_ = createApiClient(publicSchema, {
+  baseUrl: "https://public.example.com",
+  queryClient,
+});
+```
+
+<Callout type="warning">
+
+Each `createApiClient` instance owns its own `TagRegistry`. Sharing a `QueryClient` between clients still keeps tag invalidation scoped to the client that owns the tag — a `createPost` mutation in `internal` won't invalidate `public_` queries (which is what you want).
+
+</Callout>
+
+## Next
+
+- [`useQ`](/docs/react/use-q) — querying
+- [`useM`](/docs/react/use-m) — mutating
+- [`useQClient`](/docs/react/use-q-client) — manual cache control
+- [`<ApiErrorBoundary>`](/docs/react/api-error-boundary) — suspense error handling

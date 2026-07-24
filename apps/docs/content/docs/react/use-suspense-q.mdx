@@ -1,0 +1,145 @@
+---
+title: useSuspenseQ
+description: Suspense-friendly query hook for use with <Suspense> and <ApiErrorBoundary>.
+---
+
+`useSuspenseQ` is the suspense counterpart of [`useQ`](/docs/react/use-q) — same three-argument signature (`routeId`, `input?`, `options?`). It throws a promise while loading and an `ApiError` on failure, so the loading/error UI lives in the boundary instead of the component:
+
+```tsx
+function PostList({ facilityId }: { facilityId: string }) {
+  const { data } = useSuspenseQ("listPosts", {
+    params: { facilityId },
+  });
+  return (
+    <ul>
+      {data.map((post) => (
+        <li key={post.id}>{post.title}</li>
+      ))}
+    </ul>
+  );
+}
+```
+
+Note `data` is _non-nullable_ — by the time your component renders, the data has resolved.
+
+## With `<Suspense>` + `<ApiErrorBoundary>`
+
+```tsx
+import { Suspense } from "react";
+import { ApiErrorBoundary } from "@use-q/api-client-react";
+
+function PostsPage({ facilityId }: { facilityId: string }) {
+  return (
+    <ApiErrorBoundary
+      fallback={({ error, reset }) => (
+        <div role="alert">
+          <p>
+            {error.status} — {error.message}
+          </p>
+          <button onClick={reset}>Try again</button>
+        </div>
+      )}
+    >
+      <Suspense fallback={<p>Loading posts…</p>}>
+        <PostList facilityId={facilityId} />
+      </Suspense>
+    </ApiErrorBoundary>
+  );
+}
+```
+
+The `fallback` receives a single object — `{ error, reset }` — and `error` is already narrowed to `ApiError`: the boundary re-throws anything that isn't one. Order matters: the error boundary must wrap `<Suspense>`. If they swap, suspension itself counts as an error.
+
+## RSC-friendly pattern
+
+`useSuspenseQ` works in a streaming React Server Components setup. The pattern:
+
+1. Pre-fetch on the server using the raw fetcher.
+2. Hydrate the client cache.
+3. Render the client component, which immediately suspends and resolves with the hydrated data.
+
+```tsx
+// app/posts/page.tsx (RSC)
+import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
+import { api } from "@/api/client";
+import { PostsPage } from "./PostsPage";
+
+export default async function Page() {
+  const queryClient = api.queryClient;
+
+  await queryClient.prefetchQuery({
+    queryKey: api.queryKeys.listPosts({ params: { facilityId: "f1" } }),
+    queryFn: ({ signal }) =>
+      api.fetcher.fetch("/facilities/{facilityId}/posts", {
+        method: "GET",
+        params: { facilityId: "f1" },
+        signal,
+      }),
+  });
+
+  return (
+    <HydrationBoundary state={dehydrate(queryClient)}>
+      <PostsPage facilityId="f1" />
+    </HydrationBoundary>
+  );
+}
+```
+
+```tsx
+// app/posts/PostsPage.tsx — client
+"use client";
+
+import { Suspense } from "react";
+import { useSuspenseQ } from "@/api/client";
+import { ApiErrorBoundary } from "@use-q/api-client-react";
+
+function PostList({ facilityId }: { facilityId: string }) {
+  const { data } = useSuspenseQ("listPosts", { params: { facilityId } });
+  return data.map((p) => <article key={p.id}>{p.title}</article>);
+}
+
+export function PostsPage({ facilityId }: { facilityId: string }) {
+  return (
+    <ApiErrorBoundary fallback={() => <p>Couldn't load.</p>}>
+      <Suspense fallback={<p>Loading…</p>}>
+        <PostList facilityId={facilityId} />
+      </Suspense>
+    </ApiErrorBoundary>
+  );
+}
+```
+
+See [SSR & loaders](/docs/guides/ssr-and-loaders) for the full hydration story.
+
+## When to prefer `useQ` instead
+
+`useSuspenseQ` is great when:
+
+- You're already using suspense boundaries for code-splitting.
+- The component would otherwise be a tangle of `if (isLoading) return …; if (error) return …;` branches.
+
+It's the wrong fit when:
+
+- You need fine-grained access to `isFetching` or `isRefetching` inside the component.
+- You want the component to render its own skeleton inline rather than bubbling to a boundary.
+- The data is optional/conditional (use `useQ` with `enabled`).
+
+## Options and returned shape
+
+The third argument accepts TanStack's `useSuspenseQuery` options minus `queryKey`/`queryFn` — so `select`, `staleTime`, `gcTime`, `retry`, and friends all work.
+
+`useSuspenseQ` returns the same object as TanStack Query's `useSuspenseQuery`: `{ data, error, isFetching, refetch, … }`. The big differences vs. `useQ`:
+
+- `data` is the response type (not `T | undefined`).
+- There's no `isLoading` — the suspense boundary handles it.
+- `error` is always `null` while the component is mounted (a real error throws up to the boundary).
+
+<Callout type="warning">
+
+`useSuspenseQ` doesn't support `enabled: false`. If the query should be optional, gate the rendering of the suspending component itself:
+
+```tsx
+{postId && <PostDetail postId={postId} />}
+```
+
+</Callout>

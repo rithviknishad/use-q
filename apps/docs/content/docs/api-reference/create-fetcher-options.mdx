@@ -1,0 +1,196 @@
+---
+title: CreateFetcherOptions
+description: Every option accepted by createFetcher — type, default, and example.
+---
+
+```ts
+function createFetcher(options: CreateFetcherOptions): FetcherInstance;
+
+interface CreateFetcherOptions {
+  baseUrl: string;
+  headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);
+  fetch?: typeof fetch;
+  parseError?: (input: { response: Response; data: unknown }) => unknown;
+  onError?: (error: unknown) => void;
+}
+```
+
+## Fields
+
+### `baseUrl`
+
+| Type | Default | Required |
+| --- | --- | --- |
+| `string` | _none_ | yes |
+
+Prepended to every request path. Trailing slashes are normalized, so both of these work:
+
+```ts
+createFetcher({ baseUrl: "https://api.example.com" });
+createFetcher({ baseUrl: "https://api.example.com/" });
+```
+
+You can include a path prefix:
+
+```ts
+createFetcher({ baseUrl: "https://api.example.com/v1" });
+// Path "/posts" → "https://api.example.com/v1/posts"
+```
+
+Paths that are already absolute `http(s)://` URLs bypass `baseUrl` joining entirely.
+
+### `fetch`
+
+| Type | Default |
+| --- | --- |
+| `typeof fetch` | `globalThis.fetch` |
+
+A custom `fetch` implementation. Common use cases:
+
+```ts
+// Alternative fetch implementations (undici, polyfills, test doubles)
+import { fetch as undiciFetch } from "undici";
+createFetcher({ baseUrl: "…", fetch: undiciFetch });
+
+// Wrapping with retry middleware
+const wrappedFetch: typeof fetch = async (input, init) => {
+  for (let i = 0; i < 3; i++) {
+    const res = await fetch(input, init);
+    if (res.status < 500) return res;
+  }
+  return fetch(input, init);
+};
+createFetcher({ baseUrl: "…", fetch: wrappedFetch });
+```
+
+### `headers`
+
+| Type | Default |
+| --- | --- |
+| `HeadersInit` \| `() => HeadersInit \| Promise<HeadersInit>` | `undefined` |
+
+Headers applied to every request. Any `HeadersInit` works — a plain object, a `Headers` instance, or an array of `[key, value]` entries. Two shapes:
+
+#### Static
+
+```ts
+createFetcher({
+  baseUrl: "…",
+  headers: {
+    "x-api-version": "2026-01-01",
+    "x-client": "web",
+  },
+});
+```
+
+#### Function (sync or async)
+
+```ts
+createFetcher({
+  baseUrl: "…",
+  headers: async () => ({
+    Authorization: `Bearer ${await getAccessToken()}`,
+    "x-tenant-id": currentTenantId(),
+  }),
+});
+```
+
+Called on every `fetcher.fetch()` invocation and awaited if it returns a Promise. Useful for token refresh.
+
+Per-call `headers` always win over the constructor-level headers:
+
+```ts
+fetcher.fetch("/facilities/{facilityId}/posts/{postId}", {
+  params: { facilityId, postId },
+  headers: { "x-debug": "1" }, // merged with / overrides defaults
+});
+```
+
+### `parseError`
+
+| Type | Default |
+| --- | --- |
+| `(input: { response: Response; data: unknown }) => unknown` | `undefined` (raw body used as `data`) |
+
+Runs for any non-2xx response. Receives a single object with the raw `Response` and the already-parsed body (`data` is JSON when the response's content-type is `application/json`, the raw text otherwise, or `undefined` for an empty body). The return value becomes `ApiError.data`:
+
+```ts
+interface ApiProblem {
+  type: string;
+  title: string;
+  detail: string;
+}
+
+createFetcher({
+  baseUrl: "…",
+  parseError: ({ response, data }) => {
+    const body = data as Partial<ApiProblem> | null;
+    return {
+      type: body?.type ?? "about:blank",
+      title: body?.title ?? response.statusText,
+      detail: body?.detail ?? "",
+    } satisfies ApiProblem;
+  },
+});
+```
+
+Two special cases:
+
+- Returning an `ApiError` instance throws that instance as-is (full control over message, subclassing, etc.).
+- Returning `undefined`/`null` falls back to the raw parsed body as `data`.
+
+Without `parseError`, `ApiError.data` is the raw parsed body (typed as `unknown`). Narrow it at catch sites with `isApiError<ApiProblem>(err)`.
+
+### `onError`
+
+| Type | Default |
+| --- | --- |
+| `(error: unknown) => void` | `undefined` |
+
+A side-effecting hook fired for every failure (HTTP error _or_ network error) just before the error is thrown. Use it for telemetry and cross-cutting auth:
+
+```ts
+import { isApiError } from "@use-q/api-client";
+import * as Sentry from "@sentry/browser";
+
+createFetcher({
+  baseUrl: "…",
+  onError: (err) => {
+    if (isApiError(err) && err.status === 401) {
+      tokenStore.clear();
+      window.location.assign("/login");
+      return;
+    }
+    Sentry.captureException(err);
+  },
+});
+```
+
+For HTTP failures, `err` is the normalized `ApiError` — `status`, `statusText`, `url`, `method`, and `data` are all on the error itself, so no separate context object is needed. For network failures (fetch itself rejecting — DNS, CORS, abort…), `err` is the raw thrown error and `isApiError(err)` is `false`.
+
+`onError`'s return value is ignored; the original error is always thrown afterwards.
+
+## Returned shape
+
+```ts
+interface FetcherInstance {
+  baseUrl: string;
+  fetch<TResponse = unknown>(
+    path: string,
+    options?: FetcherFetchOptions,
+  ): Promise<TResponse>;
+}
+
+interface FetcherFetchOptions {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; // default "GET"
+  params?: Record<string, string | number | boolean>;
+  searchParams?: SearchParams;
+  body?: unknown;
+  signal?: AbortSignal;
+  headers?: HeadersInit;
+}
+```
+
+`fetch` is path-based: `{param}` placeholders in `path` are filled from `params` (URI-encoded, throwing on missing values), `searchParams` are appended to the URL, and the response type is whatever you pass as the `TResponse` generic. Schema-typed, route-id-based calls come from [`createApiClient`](/docs/api-reference/create-api-client-options), which wraps this same fetcher.
+
+See [`createFetcher`](/docs/core/create-fetcher) for usage recipes.

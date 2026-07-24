@@ -1,0 +1,231 @@
+---
+title: useInfiniteQ
+description: Infinite/paginated queries with schema-driven pageParam, getNextPageParam, and aggregated pages.
+---
+
+`useInfiniteQ` is `useQ`'s big sibling for paginated routes. It only works with routes whose `RouteDefinition` declares a `pagination` block — calling it on a route without one throws immediately with a clear error message.
+
+## A paginated route
+
+```ts
+// src/api/schema.ts
+import type { RouteDefinition } from "@use-q/api-client";
+
+export const schema = {
+  listPosts: {
+    method: "GET",
+    path: "/facilities/{facilityId}/posts",
+    pagination: {
+      kind: "page-number",
+      pageParam: "page",
+      itemsKey: "items", // default "items"
+      totalKey: "total", // default "total"
+    },
+    tags: ["posts"],
+  } satisfies RouteDefinition<
+    { facilityId: string },
+    { page?: number; limit?: number; search?: string },
+    never,
+    { items: Post[]; total: number }
+  >,
+} as const;
+```
+
+The `pagination` block tells `useInfiniteQ` two things:
+
+1. Which `searchParams` key carries the page value (`pageParam`) — the hook injects the current page param there on every fetch.
+2. How to find items and total/next-cursor in the response (`itemsKey` + `totalKey`, or `cursorKey`), so it can derive a default `getNextPageParam`.
+
+## Using it
+
+With a `page-number` route, the defaults kick in automatically: `initialPageParam` is `1`, and the next page is `lastPageParam + 1` until `currentPage * items.length >= total`.
+
+```tsx
+import { useInfiniteQ } from "@/api/client";
+
+function PostList({ facilityId }: { facilityId: string }) {
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+  } = useInfiniteQ("listPosts", {
+    params: { facilityId },
+    searchParams: { limit: 20 },
+  });
+
+  if (isLoading) return <p>Loading…</p>;
+
+  return (
+    <>
+      {data?.pages.flatMap((page) =>
+        page.items.map((post) => <article key={post.id}>{post.title}</article>),
+      )}
+      {hasNextPage && (
+        <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+          {isFetchingNextPage ? "Loading more…" : "Load more"}
+        </button>
+      )}
+    </>
+  );
+}
+```
+
+If the defaults don't fit your response shape, override `initialPageParam` / `getNextPageParam` in the third argument:
+
+```tsx
+useInfiniteQ(
+  "listPosts",
+  { params: { facilityId }, searchParams: { limit: 20 } },
+  {
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) => {
+      const fetched = allPages.reduce((sum, p) => sum + p.items.length, 0);
+      return fetched < lastPage.total ? allPages.length + 1 : undefined;
+    },
+  },
+);
+```
+
+## Cursor pagination
+
+```ts
+listFeed: {
+  method: "GET",
+  path: "/feed",
+  pagination: {
+    kind: "cursor",
+    pageParam: "cursor",
+    cursorKey: "nextCursor", // default "nextCursor"
+    itemsKey: "items", // default "items"
+  },
+} satisfies RouteDefinition<
+  never,
+  { cursor?: string; limit?: number },
+  never,
+  { items: Post[]; nextCursor: string | null }
+>,
+```
+
+```tsx
+const feed = useInfiniteQ("listFeed", { searchParams: { limit: 25 } });
+```
+
+For `cursor` routes the defaults are: `initialPageParam` is `null` (the first request sends no cursor), and the next page param is `lastPage[cursorKey] ?? null`. When it resolves to `null`, `hasNextPage` becomes `false`.
+
+## `pages` aggregation
+
+`data.pages` is an array of raw responses (one per fetched page). To render a flat list, `.flatMap` through them:
+
+```tsx
+{data?.pages.flatMap((p) => p.items).map((post) => (
+  <article key={post.id}>{post.title}</article>
+))}
+```
+
+If you'd rather expose a derived shape to the component, use `select`:
+
+```tsx
+const posts = useInfiniteQ(
+  "listPosts",
+  { params: { facilityId } },
+  {
+    select: (data) => ({
+      posts: data.pages.flatMap((p) => p.items),
+      total: data.pages[0]?.total ?? 0,
+    }),
+  },
+);
+
+posts.data?.posts; // Post[]
+posts.data?.total; // number
+```
+
+## Scroll-trigger pattern
+
+A common UX: load more whenever a sentinel scrolls into view. Combine with `IntersectionObserver`:
+
+```tsx
+import { useEffect, useRef } from "react";
+
+function PostList({ facilityId }: { facilityId: string }) {
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQ("listPosts", { params: { facilityId } });
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasNextPage) return;
+    const obs = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting && !isFetchingNextPage) {
+        void fetchNextPage();
+      }
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  return (
+    <>
+      {data?.pages.flatMap((p) =>
+        p.items.map((post) => <article key={post.id}>{post.title}</article>),
+      )}
+      <div ref={sentinelRef} aria-hidden style={{ height: 1 }} />
+    </>
+  );
+}
+```
+
+## Options
+
+The third argument accepts everything TanStack's `useInfiniteQuery` does (minus `queryKey`/`queryFn`), with `initialPageParam` and `getNextPageParam` made **optional** because they're usually derived from the route's `pagination`:
+
+```ts
+type UseInfiniteQOptions<TData, TPageParam> = Omit<
+  UseInfiniteQueryOptions<TData, DefaultError, InfiniteData<TData, TPageParam>, QueryKey, TPageParam>,
+  "queryKey" | "queryFn" | "initialPageParam" | "getNextPageParam"
+> & {
+  initialPageParam?: TPageParam;
+  getNextPageParam?: (
+    lastPage: TData,
+    allPages: TData[],
+    lastPageParam: TPageParam,
+  ) => TPageParam | undefined | null;
+};
+```
+
+### `maxPages`
+
+Cap how many pages stay in memory; useful for very long lists where dropping older pages is OK:
+
+```tsx
+useInfiniteQ("listPosts", { params: { facilityId } }, {
+  maxPages: 10,
+  getPreviousPageParam: (_first, _all, firstPageParam) =>
+    typeof firstPageParam === "number" && firstPageParam > 1
+      ? firstPageParam - 1
+      : undefined,
+});
+```
+
+(TanStack Query requires `getPreviousPageParam` when using `maxPages`, so it can re-fetch dropped pages when scrolling back.)
+
+## Runtime guard
+
+If the route has no `pagination` block, the hook throws as soon as it runs:
+
+```ts
+useInfiniteQ("getPost", { params: { facilityId, postId } });
+// Error: useInfiniteQ: route "getPost" has no `pagination` declaration in the schema.
+```
+
+<Callout type="tip">
+
+Want suspense semantics? Wrap your component in `<Suspense>` and use `useSuspenseInfiniteQuery` from TanStack Query directly against `api.queryClient` — `useInfiniteQ` follows the standard (non-suspense) shape, so the loading/error UI lives inside the component.
+
+</Callout>

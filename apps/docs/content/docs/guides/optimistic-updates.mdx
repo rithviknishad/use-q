@@ -1,0 +1,187 @@
+---
+title: Optimistic updates
+description: Multi-target optimistic patterns — list insert, item update, list delete — with snapshot/rollback semantics.
+---
+
+Optimistic updates let you reflect a mutation's effect in the UI _before_ the server confirms it. `useM`'s `optimisticUpdates` option makes the snapshot + rollback ceremony declarative.
+
+Each entry names a **target** — either an exact route (`{ routeId, input? }`) or a tag list (`{ tags: [...] }`, resolved through the [TagRegistry](/docs/guides/tag-invalidation) to every currently-registered query) — and an **updater** that receives the previous cache value plus the mutation's `{ params, body }`.
+
+## The lifecycle
+
+For each target query key:
+
+1. **`cancelQueries`** — prevent any in-flight refetch of the target from clobbering your optimistic value.
+2. **`getQueryData`** — snapshot the previous value.
+3. **`setQueryData`** — apply your `updater` to produce the optimistic value.
+4. On **`onError`** — every snapshot is restored automatically.
+5. On **`onSettled`** — `useM` runs tag invalidation, which refetches the truth.
+
+You write the `updater`. Everything else is handled.
+
+## Pattern 1: item update
+
+The simplest case: a single mutation updates a single resource.
+
+```tsx
+const updatePost = useM("updatePost", {
+  optimisticUpdates: [
+    {
+      target: { routeId: "getPost", input: { params: { facilityId, postId } } },
+      updater: (prev, vars) => prev && { ...prev, ...vars.body },
+    },
+  ],
+});
+
+updatePost.mutate({
+  params: { facilityId, postId },
+  body: { title: "New title" },
+});
+```
+
+Note `updater` returns `undefined` (well, `prev && …`) when there's nothing in cache — leaving the cache untouched. This keeps `setQueryData` from inserting a half-formed entry.
+
+## Pattern 2: list update
+
+Most apps render lists and details. After an item update, you want both surfaces to reflect the new value without two roundtrips.
+
+```tsx
+const updatePost = useM("updatePost", {
+  optimisticUpdates: [
+    {
+      target: { routeId: "getPost", input: { params: { facilityId, postId } } },
+      updater: (prev, vars) => prev && { ...prev, ...vars.body },
+    },
+    {
+      target: { routeId: "listPosts", input: { params: { facilityId } } },
+      updater: (prev, vars) =>
+        prev?.map((p) => (p.id === postId ? { ...p, ...vars.body } : p)),
+    },
+  ],
+});
+```
+
+Each target gets its own snapshot, so if the request fails, _both_ caches roll back atomically.
+
+<Callout type="info">
+
+A `routeId` target resolves to exactly one query key, built from the `input` you pass — so it must match the `input` the reading `useQ` uses (including `searchParams`). To hit every matching query regardless of `searchParams`, use a tag target instead: `target: { tags: [{ type: "posts", id: facilityId }] }`.
+
+</Callout>
+
+## Pattern 3: list insert
+
+For a create flow, you can prepend a placeholder item and let invalidation later swap the placeholder for the real server payload.
+
+```tsx
+const createPost = useM("createPost", {
+  optimisticUpdates: [
+    {
+      target: { routeId: "listPosts", input: { params: { facilityId } } },
+      updater: (prev, vars) => [
+        {
+          // Stable enough for the optimistic phase.
+          id: `temp-${crypto.randomUUID()}`,
+          facilityId,
+          createdAt: new Date().toISOString(),
+          ...vars.body,
+        },
+        ...(prev ?? []),
+      ],
+    },
+  ],
+});
+
+createPost.mutate({ params: { facilityId }, body: { title: "Hello" } });
+```
+
+When the mutation succeeds, `useM` invalidates the list (via the schema's `invalidatesTags`), triggering a refetch — the server's authoritative payload replaces the temporary item.
+
+## Pattern 4: list delete
+
+Removing optimistically is a one-liner:
+
+```tsx
+const deletePost = useM("deletePost", {
+  optimisticUpdates: [
+    {
+      target: { routeId: "listPosts", input: { params: { facilityId } } },
+      updater: (prev) => prev?.filter((p) => p.id !== postId),
+    },
+    {
+      target: { routeId: "getPost", input: { params: { facilityId, postId } } },
+      updater: () => undefined, // also evict the detail cache
+    },
+  ],
+});
+
+deletePost.mutate({ params: { facilityId, postId } });
+```
+
+If the delete fails, both caches restore from snapshot — the user sees the item reappear.
+
+## Pattern 5: paginated lists
+
+For infinite/paginated routes, the cache value is `InfiniteData<TPage>` — `{ pages: TPage[], pageParams: TPageParam[] }`. Update each page that needs touching:
+
+```tsx
+const updatePost = useM("updatePost", {
+  optimisticUpdates: [
+    {
+      target: { routeId: "listPosts", input: { params: { facilityId } } }, // paginated
+      updater: (prev, vars) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          pages: prev.pages.map((page) => ({
+            ...page,
+            items: page.items.map((p) =>
+              p.id === postId ? { ...p, ...vars.body } : p,
+            ),
+          })),
+        };
+      },
+    },
+  ],
+});
+```
+
+The same shape applies for inserts (prepend to the first page) and deletes (filter every page).
+
+## Cancellation
+
+`useM` calls `queryClient.cancelQueries({ queryKey })` for each target key before applying the optimistic update. That's important: if a `useQ` is mid-fetch when the mutation fires, the in-flight response would otherwise win the race and overwrite your optimistic value.
+
+You don't have to think about this — it's automatic — but it's why the order of operations in `onMutate` matters.
+
+## Why `onSettled` invalidation matters
+
+After the snapshot is restored (or applied), `useM` invalidates tags _no matter what_. Two scenarios:
+
+- **Success path**: the optimistic value was right (or close); invalidation refetches and replaces with truth. No user-visible flicker.
+- **Error path**: the snapshot rollback put back stale data; invalidation refetches to make sure the user is looking at the real current state.
+
+This is why optimistic + tag-based caches are a powerful combo: you get fast UI _and_ a self-healing system.
+
+## When to skip optimistic updates
+
+Don't reach for optimistic updates when:
+
+- The user explicitly waits for confirmation (e.g. "Order placed!" with a long-running payment flow).
+- The update is hard to render without the server's response (auto-generated IDs that link to other resources, calculated fields).
+- The mutation is rare and a brief spinner is fine. Less code = fewer bugs.
+
+A mutation can pair optimistic updates with `useM`'s tag invalidation _selectively_ — you can opt into optimism on the easy cases and let the harder cases just refetch.
+
+## Debugging tips
+
+- **The cache flickers.** Usually your `updater` returns `undefined` for valid inputs. Use `prev && next` rather than mutating-in-place.
+- **The cache stays optimistic after error.** The route is missing `invalidatesTags`, so `onSettled` doesn't refetch. Make sure the schema chains `invalidatesTags` ↔ `tags`.
+- **The updater never runs.** A tag target only matches queries currently registered in the `TagRegistry` (mounted, with data). A `routeId` target with a mismatched `input` produces a key nothing is cached under — compare against devtools.
+- **Two mutations fight.** If two mutations target the same cache, the second snapshot is the first's optimistic value. That's correct behavior, but consider whether the second mutation should `mutateAsync` to wait for the first.
+
+<Callout type="tip">
+
+Pair optimistic updates with a small toast that says "Saved" only after the mutation actually succeeds. The user sees the change instantly _and_ knows it was committed. Use `onSuccess` on the per-call options for that.
+
+</Callout>

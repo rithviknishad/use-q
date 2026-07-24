@@ -1,0 +1,178 @@
+---
+title: useQClient
+description: Imperative cache control — invalidate by tag or key, prefetch, setData, updateData, and more.
+---
+
+`useQClient` is the imperative escape hatch. It returns a typed wrapper around the underlying `QueryClient` so you can invalidate, prefetch, and edit cache entries by route id (with full type inference).
+
+```tsx
+import { useQClient } from "@/api/client";
+
+const qc = useQClient();
+qc.invalidateTag({ type: "post", id: "p1" });
+```
+
+The returned object is stable across renders — it's safe to put in dependency arrays.
+
+## API
+
+```ts
+interface QClient<TSchema extends Schema> {
+  invalidateTag(tags: Tag | ReadonlyArray<Tag>): Promise<void>;
+  invalidate(
+    target: ReadonlyArray<unknown> | { prefix: ReadonlyArray<unknown> },
+  ): Promise<void>;
+  invalidateAll(): Promise<void>;
+  setData<RouteId extends keyof TSchema & string>(
+    routeId: RouteId,
+    input: RouteInput<TSchema[RouteId]> | undefined,
+    data: RouteResponse<TSchema[RouteId]>,
+  ): void;
+  updateData<RouteId extends keyof TSchema & string>(
+    routeId: RouteId,
+    input: RouteInput<TSchema[RouteId]> | undefined,
+    updater: (
+      prev: RouteResponse<TSchema[RouteId]> | undefined,
+    ) => RouteResponse<TSchema[RouteId]>,
+  ): void;
+  prefetch<RouteId extends keyof TSchema & string>(
+    routeId: RouteId,
+    input?: RouteInput<TSchema[RouteId]>,
+  ): Promise<void>;
+}
+```
+
+## `invalidateTag`
+
+Invalidate every cached query registered against the given tag(s) — pass one tag or an array. This resolves through the same `TagRegistry` that `useM` uses for `invalidatesTags`:
+
+```ts
+qc.invalidateTag({ type: "post", id: "p1" });
+// Invalidates every query registered with the tag { type: "post", id: "p1" }.
+
+qc.invalidateTag("posts");
+// Invalidates every query registered with the string tag "posts".
+
+qc.invalidateTag(["posts", { type: "post", id: "p1" }]);
+// Union of both.
+```
+
+Tags match by exact identity (`{ type, id }` normalizes to `"type:id"`) — a bare `{ type: "post" }` does **not** match id-carrying tags, so register both broad and narrow tags on read routes if you need both granularities.
+
+Use this after a non-`useM` side effect (e.g. an out-of-band server-sent event):
+
+```tsx
+useEffect(() => {
+  const es = new EventSource("/events");
+  es.addEventListener("post-changed", (msg) => {
+    const { postId } = JSON.parse(msg.data);
+    void qc.invalidateTag({ type: "post", id: postId });
+  });
+  return () => es.close();
+}, [qc]);
+```
+
+## `invalidate(target)` — exact vs prefix
+
+Invalidate by query key. Pass a key array for an exact match, or wrap it in `{ prefix: … }` to invalidate every key starting with it. Build keys with the `api.queryKeys` factory instead of writing them by hand:
+
+```ts
+import { api } from "@/api/client";
+
+// Exact — only this query
+void qc.invalidate(
+  api.queryKeys.getPost({ params: { facilityId: "f1", postId: "p1" } }),
+);
+
+// Prefix — every query for this method + path
+void qc.invalidate({
+  prefix: ["api", "GET", "/facilities/f1/posts"],
+});
+```
+
+Under the hood, the exact form uses TanStack Query's `exact: true` filter and the prefix form uses `exact: false` against the query key shape `["api", METHOD, resolvedPath, sortedSearchParams]`. See [Query keys](/docs/guides/query-keys).
+
+## `invalidateAll`
+
+Nuke the whole cache. Useful after a logout or a tenant switch:
+
+```ts
+function logout() {
+  tokenStore.clear();
+  void qc.invalidateAll();
+  router.push("/login");
+}
+```
+
+## `setData` — replace a cache entry
+
+Synchronously write a fully-typed value into the cache for a given route + input:
+
+```ts
+qc.setData(
+  "getPost",
+  { params: { facilityId: "f1", postId: "p1" } },
+  { id: "p1", facilityId: "f1", title: "Edited", body: "…", createdAt: "…" },
+);
+```
+
+This is also how you hydrate from a loader/server payload — see [SSR & loaders](/docs/guides/ssr-and-loaders).
+
+## `updateData` — patch a cache entry
+
+`updateData` is the functional cousin: instead of providing the whole next value, you provide an updater.
+
+```ts
+qc.updateData(
+  "getPost",
+  { params: { facilityId: "f1", postId: "p1" } },
+  (prev) => (prev ? { ...prev, title: "Edited" } : prev),
+);
+```
+
+Common after a non-list response patches one item but the list cache is also stale.
+
+## `prefetch`
+
+Warm the cache for a route, typically on hover or route preload:
+
+```tsx
+function PostLink({ post, facilityId }: { post: Post; facilityId: string }) {
+  const qc = useQClient();
+  return (
+    <a
+      href={`/posts/${post.id}`}
+      onMouseEnter={() =>
+        void qc.prefetch("getPost", {
+          params: { facilityId, postId: post.id },
+        })
+      }
+    >
+      {post.title}
+    </a>
+  );
+}
+```
+
+`prefetch` takes only the route id and input. Freshness follows the `QueryClient`'s configured `staleTime` — if you need a specific window for prefetched data, set it in the `QueryClient` defaults (see [BYO QueryClient](/docs/guides/byo-query-client)) or drop down to `api.queryClient.prefetchQuery` directly.
+
+## Imperative use outside a component
+
+If you need cache control outside React (e.g. a global `logout` function), reach for `api.queryClient` directly and skip `useQClient`:
+
+```ts
+import { api } from "@/api/client";
+
+export function logout() {
+  void api.queryClient.invalidateQueries();
+  api.queryClient.clear();
+}
+```
+
+The `queryClient` from `createApiClient` is the same instance backing every hook in your app.
+
+<Callout type="tip">
+
+`useQClient` is the only typed surface that knows about your `Schema`. For ad-hoc TanStack Query operations (`getQueriesData` filters, manual key arrays, etc.), use `api.queryClient` directly — but you'll lose route-level type safety on those calls.
+
+</Callout>
