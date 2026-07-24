@@ -17,9 +17,6 @@
   "files": [
     "dist"
   ],
-  "bin": {
-    "use-q-codegen": "./node_modules/@use-q/api-client-codegen/dist/cli.js"
-  },
   "scripts": {
     "build": "tsup",
     "prepare": "tsup",
@@ -28,9 +25,7 @@
     "lint": "eslint \"src/**/*.ts\"",
     "test": "vitest run"
   },
-  "dependencies": {
-    "@use-q/api-client-codegen": "workspace:*"
-  },
+  "dependencies": {},
   "devDependencies": {
     "tsup": "^8.0.0",
     "typescript": "^5.5.0",
