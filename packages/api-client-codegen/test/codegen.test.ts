@@ -73,7 +73,7 @@ describe('buildSchemaModule', () => {
     expect(source).toContain('pagination: { kind: "page-number", pageParam: "page" }');
     expect(source).toContain('pagination: { kind: "cursor", pageParam: "cursor" }');
     expect(source).toContain('export type Schema = typeof schema;');
-    expect(source).toContain('as const satisfies Record<string, RouteDefinition<any, any, any, any>>');
+    expect(source).toContain('as RouteDefinition<');
     expect(source).toContain('export type Pet =');
     expect(source).toContain('export type PetPage =');
   });

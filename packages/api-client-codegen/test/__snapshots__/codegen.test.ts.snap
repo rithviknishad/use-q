@@ -22,31 +22,31 @@ export const schema = {
     path: '/pets',
     tags: ['Pets'] as const,
     pagination: { kind: 'page-number', pageParam: 'page' } as const,
-  } satisfies RouteDefinition<Record<string, never>, { page?: number }, never, PetPage>,
+  } as RouteDefinition<Record<string, never>, { page?: number }, never, PetPage>,
   createPet: {
     method: 'POST',
     path: '/pets',
     tags: ['Pets'] as const,
-  } satisfies RouteDefinition<Record<string, never>, Record<string, never>, PetInput, Pet>,
+  } as RouteDefinition<Record<string, never>, Record<string, never>, PetInput, Pet>,
   getPet: {
     method: 'GET',
     path: '/pets/{id}',
-  } satisfies RouteDefinition<{ id: string }, Record<string, never>, never, Pet>,
+  } as RouteDefinition<{ id: string }, Record<string, never>, never, Pet>,
   deletePet: {
     method: 'DELETE',
     path: '/pets/{id}',
-  } satisfies RouteDefinition<{ id: string }, Record<string, never>, never, unknown>,
+  } as RouteDefinition<{ id: string }, Record<string, never>, never, unknown>,
   listEvents: {
     method: 'GET',
     path: '/events',
     pagination: { kind: 'cursor', pageParam: 'cursor' } as const,
-  } satisfies RouteDefinition<
+  } as RouteDefinition<
     Record<string, never>,
     { cursor?: string },
     never,
     { items?: Array<Event>; nextCursor?: string | null }
   >,
-} as const satisfies Record<string, RouteDefinition<any, any, any, any>>;
+} as const;
 
 export type Schema = typeof schema;
 "

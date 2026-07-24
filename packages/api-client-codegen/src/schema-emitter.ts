@@ -161,7 +161,10 @@ function serializeRoute(r: RoutePayload): string {
       )} } as const,`,
     );
   }
-  lines.push('  } satisfies RouteDefinition<');
+  // `as` (not `satisfies`): the phantom generics must survive into the
+  // schema object type so RouteResponse/RouteParams inference works for
+  // consumers. `satisfies` would erase them.
+  lines.push('  } as RouteDefinition<');
   lines.push(`    ${r.paramsType},`);
   lines.push(`    ${r.searchType},`);
   lines.push(`    ${r.bodyType},`);
@@ -206,7 +209,7 @@ export function buildSchemaModule(spec: OpenAPISpec, options: { baseUrl?: string
   const body = [
     'export const schema = {',
     entries,
-    '} as const satisfies Record<string, RouteDefinition<any, any, any, any>>;',
+    '} as const;',
     '',
     'export type Schema = typeof schema;',
     '',
