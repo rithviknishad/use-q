@@ -85,10 +85,16 @@ export function createFetcher(options: CreateFetcherOptions): FetcherInstance {
     };
 
     if (init.body !== undefined && METHODS_WITH_BODY.has(method)) {
-      requestInit.body = JSON.stringify(init.body);
-      if (!('content-type' in lowercaseKeys(callHeaders))) {
-        callHeaders['Content-Type'] = 'application/json';
-        requestInit.headers = callHeaders;
+      if (init.body instanceof FormData || init.body instanceof Blob) {
+        // Binary/multipart payloads pass through untouched; the browser
+        // sets the multipart boundary header itself.
+        requestInit.body = init.body;
+      } else {
+        requestInit.body = JSON.stringify(init.body);
+        if (!('content-type' in lowercaseKeys(callHeaders))) {
+          callHeaders['Content-Type'] = 'application/json';
+          requestInit.headers = callHeaders;
+        }
       }
     }
 

@@ -30,6 +30,19 @@ describe('createFetcher', () => {
     expect(headers['Content-Type'] ?? headers['content-type']).toBe('application/json');
   });
 
+  it('passes FormData through without JSON serialization', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
+    const f = createFetcher({ baseUrl: 'https://api.example.com', fetch: fetchMock });
+    const form = new FormData();
+    form.append('file', new Blob(['a,b\n1,2']), 'rows.csv');
+    await f.fetch('/import', { method: 'POST', body: form });
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect(init.body).toBe(form);
+    const headers = init.headers as Record<string, string>;
+    // The browser must set the multipart boundary itself.
+    expect(headers['Content-Type'] ?? headers['content-type']).toBeUndefined();
+  });
+
   it('does not send a body for GET requests', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({}));
     const f = createFetcher({ baseUrl: 'https://api.example.com', fetch: fetchMock });
