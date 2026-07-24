@@ -22,7 +22,7 @@ export const schema = {
     path: '/pets',
     tags: ['Pets'] as const,
     pagination: { kind: 'page-number', pageParam: 'page' } as const,
-  } as RouteDefinition<Record<string, never>, { page?: number }, never, PetPage>,
+  } as RouteDefinition<Record<string, never>, { page?: number }, undefined, PetPage>,
   createPet: {
     method: 'POST',
     path: '/pets',
@@ -31,11 +31,11 @@ export const schema = {
   getPet: {
     method: 'GET',
     path: '/pets/{id}',
-  } as RouteDefinition<{ id: string }, Record<string, never>, never, Pet>,
+  } as RouteDefinition<{ id: string }, Record<string, never>, undefined, Pet>,
   deletePet: {
     method: 'DELETE',
     path: '/pets/{id}',
-  } as RouteDefinition<{ id: string }, Record<string, never>, never, unknown>,
+  } as RouteDefinition<{ id: string }, Record<string, never>, undefined, unknown>,
   listEvents: {
     method: 'GET',
     path: '/events',
@@ -43,7 +43,7 @@ export const schema = {
   } as RouteDefinition<
     Record<string, never>,
     { cursor?: string },
-    never,
+    undefined,
     { items?: Array<Event>; nextCursor?: string | null }
   >,
 } as const;

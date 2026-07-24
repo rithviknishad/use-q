@@ -68,7 +68,9 @@ function emitSearchType(params: Parameter[]): string {
 
 function emitBodyType(op: Operation): string {
   const body = op.requestBody;
-  if (!body) return 'never';
+  // `undefined`, not `never`: `never` in the contravariant invalidatesTags
+  // callback position makes routes unassignable to AnyRouteDefinition.
+  if (!body) return 'undefined';
   const json = body.content?.['application/json']?.schema;
   if (!json) return 'unknown';
   return emitType(json);
