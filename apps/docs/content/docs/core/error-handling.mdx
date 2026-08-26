@@ -5,6 +5,8 @@ description: ApiError, isApiError, custom parseError shapes, and global error ho
 
 Every non-2xx response from a `use-q` fetcher (or hook) throws an `ApiError`. That's it — one shape, every time, fully typed.
 
+How you _handle_ that error is still TkDodo's [error-handling](https://tkdodo.eu/blog/react-query-error-handling) advice: globally (`onError` on the fetcher), per call (`useM` / `useQ` callbacks), or with an error boundary (`ApiErrorBoundary` + suspense). Pick the layer that has the context.
+
 ## `ApiError`
 
 `ApiError` is a regular `Error` subclass with extra fields:

@@ -12,6 +12,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { DocsSidebarNav } from "@/components/docs/sidebar-nav";
+import { LogoMark } from "@/components/docs/logo";
 import { ThemeToggle } from "@/components/docs/theme-toggle";
 
 function GitHubIcon(props: React.SVGProps<SVGSVGElement>) {
@@ -25,9 +26,7 @@ function GitHubIcon(props: React.SVGProps<SVGSVGElement>) {
 export function SiteLogo() {
   return (
     <Link href="/" className="flex items-center gap-2.5">
-      <span className="flex size-7 items-center justify-center rounded-squircle-md rounded-lg bg-primary font-mono text-sm font-bold text-primary-foreground">
-        q
-      </span>
+      <LogoMark className="size-7" />
       <span className="font-mono text-sm font-semibold tracking-tight">
         use-q
       </span>

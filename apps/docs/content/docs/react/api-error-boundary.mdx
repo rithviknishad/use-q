@@ -5,7 +5,7 @@ description: A typed React error boundary for use with useSuspenseQ. fallback si
 
 `<ApiErrorBoundary>` is a small class-based error boundary that catches `ApiError`s thrown during render and lets you reset back to a clean state. Anything that is *not* an `ApiError` is re-thrown to the next boundary up the tree — so inside the fallback, the error is always a typed `ApiError`.
 
-It's the partner to `useSuspenseQ` / `useSuspenseInfiniteQuery`. Throwing a `Promise` (suspending) propagates to `<Suspense>`; throwing an `ApiError` propagates here.
+It's the partner to `useSuspenseQ` / `useSuspenseInfiniteQuery`, and the error-boundary half of [TkDodo's error-handling advice](https://tkdodo.eu/blog/react-query-error-handling). Throwing a `Promise` (suspending) propagates to `<Suspense>`; throwing an `ApiError` propagates here.
 
 ## Basic usage
 

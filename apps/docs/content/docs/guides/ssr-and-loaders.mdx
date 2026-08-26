@@ -5,6 +5,8 @@ description: Use the raw fetcher in React Router, TanStack Router, Next.js serve
 
 `use-q`'s framework-agnostic core (`createFetcher`) shines on the server. You can pre-fetch data anywhere — route loaders, RSC, server actions, edge workers — and seamlessly hand it to the client cache.
 
+The ideas are [React Query meets React Router](https://tkdodo.eu/blog/react-query-meets-react-router) and [Seeding the Query Cache](https://tkdodo.eu/blog/seeding-the-query-cache): fetch once on the server, put the result in the same query key the client hook will read, and skip the loading flash. For TanStack Router's first-class Query integration specifically, see TkDodo's [TanStack Router and Query](https://tkdodo.eu/blog/tanstack-router-and-query) — this guide stays on the shared-cache pattern.
+
 ## The pattern, in one picture
 
 ```

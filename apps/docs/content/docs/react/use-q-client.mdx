@@ -5,6 +5,8 @@ description: Imperative cache control — invalidate by tag or key, prefetch, se
 
 `useQClient` is the imperative escape hatch. It returns a typed wrapper around the underlying `QueryClient` so you can invalidate, prefetch, and edit cache entries by route id (with full type inference).
 
+That's [seeding the query cache](https://tkdodo.eu/blog/seeding-the-query-cache) without assembling keys by hand — `prefetch`, `setData`, and `updateData` all go through the same `queryKeys` factory `useQ` uses.
+
 ```tsx
 import { useQClient } from "@/api/client";
 

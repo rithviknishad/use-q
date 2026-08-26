@@ -1,11 +1,13 @@
 ---
 title: Introduction
-description: use-q is a type-safe, schema-driven API client for TypeScript and React, built on TanStack Query v5.
+description: use-q is an opinionated, schema-driven way to use TanStack Query v5 — TkDodo's Practical React Query patterns as a typed API client.
 ---
 
-`use-q` is a thin, opinionated layer that turns an OpenAPI-style schema into fully typed, cache-aware React hooks — without giving up the power of TanStack Query v5.
+`use-q` is an opinionated way to use [TanStack Query](https://tanstack.com/query/latest) v5. The opinions are Dominik Dorfmeister ([TkDodo](https://tkdodo.eu))'s, from the [Practical React Query](https://tkdodo.eu/blog/practical-react-query) series — encoded as a thin, schema-driven API client.
 
-You describe your API once as a plain object of `RouteDefinition`s. From that single source of truth, `use-q` infers path params, search params, request bodies, and response shapes, and wires up cache invalidation automatically through schema-defined tags. No `any` leaks into your components, and no query keys are written by hand.
+You describe your API once as a plain object of `RouteDefinition`s. From that single source of truth, `use-q` infers path params, search params, request bodies, and response shapes, builds hierarchical query keys, and wires up cache invalidation automatically through schema-defined tags. No `any` leaks into your components, and no query keys are written by hand.
+
+You still use TanStack Query. `use-q` does not replace it or hide the `QueryClient` — it makes the recommended patterns the path of least resistance. See [Practical React Query](/docs/getting-started/practical-react-query) for how each API maps to TkDodo's posts.
 
 ## The packages
 
@@ -77,16 +79,23 @@ That's it — the list refetches automatically after the mutation, because `crea
 
 ## Design principles
 
-- **End-to-end type safety.** Path params, search params, request bodies, and response shapes are all inferred from a single `RouteDefinition` map.
-- **Framework-agnostic core.** `@use-q/api-client` is a tiny zero-dependency fetcher that runs in Node, Bun, Deno, edge workers, or the browser. Use it from server actions, loaders, or scripts — no React required.
-- **Schema-driven invalidation.** Tag routes with `tags` / `invalidatesTags` and the React layer takes care of the rest. Mutations automatically refresh the right queries through a shared `TagRegistry`.
+These are TkDodo's Practical React Query defaults, as a library:
+
+- **End-to-end type safety.** Path params, search params, request bodies, and response shapes are all inferred from a single `RouteDefinition` map — not from `useQuery` generics.
+- **A query abstraction, not a new mental model.** `createApiClient` is the colocated `queryKey` + `queryFn` layer. You still mount `QueryClientProvider` and pass `staleTime` / `select` / `enabled`.
+- **Hierarchical query keys you never type twice.** Keys are always `["api", method, path, searchParams]`. Prefix invalidation and a `queryKeys` factory come for free.
+- **Schema-driven invalidation.** Tag routes with `tags` / `invalidatesTags` and mutations refresh the right queries in `onSettled` through a shared `TagRegistry`.
 - **Optimistic updates that compose.** Update multiple caches per mutation with snapshot/rollback semantics built in. Combine with `additionalInvalidatesTags` for arbitrary fan-out.
+- **Framework-agnostic core.** `@use-q/api-client` is a tiny zero-dependency fetcher that runs in Node, Bun, Deno, edge workers, or the browser. Use it from server actions, loaders, or scripts — no React required.
 - **OpenAPI codegen.** Generate a typed schema directly from an OpenAPI 3.x spec with `use-q-codegen` from `@use-q/api-client-codegen`. Pagination is detected automatically.
 - **Bring your own QueryClient.** Reuse a single `QueryClient` across multiple `createApiClient` instances, or hook into persistence and devtools — `use-q` never gets in the way.
 
 ## Where to next?
 
 <CardGrid>
+  <LinkCard title="Practical React Query" href="/docs/getting-started/practical-react-query">
+    The opinions — and links to TkDodo's series
+  </LinkCard>
   <LinkCard title="Install" href="/docs/getting-started/installation">
     Install `@use-q/api-client` and the React layer
   </LinkCard>
@@ -96,7 +105,8 @@ That's it — the list refetches automatically after the mutation, because `crea
   <LinkCard title="Define a schema" href="/docs/getting-started/schema-definition">
     Anatomy of a `RouteDefinition`
   </LinkCard>
-  <LinkCard title="API reference" href="/docs/api-reference/route-definition">
-    Browse every option and hook
-  </LinkCard>
 </CardGrid>
+
+## LLM-readable docs
+
+Agents can read these docs at [`/llms.txt`](/llms.txt) (an index of every page) or [`/llms-full.txt`](/llms-full.txt) (the complete corpus in one file). Each page is also available as Markdown by appending `.md` to its URL.

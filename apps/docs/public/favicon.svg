@@ -1,13 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect x="2" y="2" width="60" height="60" rx="16" fill="#065f46" />
-  <text
-    x="50%"
-    y="55%"
-    text-anchor="middle"
-    dominant-baseline="middle"
-    font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
-    font-weight="700"
-    font-size="36"
-    fill="#ecfdf5"
-  >q</text>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#10b981" />
+      <stop offset="1" stop-color="#047857" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#tile)" />
+  <circle cx="32" cy="32" r="7" fill="#ecfdf5" />
+  <path d="M48.421 27.6A17 17 0 1 1 30.518 15.065" fill="none" stroke="#ecfdf5" stroke-width="7.5" stroke-linecap="round" />
+  <polygon points="39.235,14.302 31.107,21.789 29.93,8.34" fill="#ecfdf5" />
 </svg>

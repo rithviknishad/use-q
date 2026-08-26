@@ -3,7 +3,9 @@ import path from "node:path";
 import matter from "gray-matter";
 import GithubSlugger from "github-slugger";
 
-const CONTENT_DIR = path.join(process.cwd(), "content", "docs");
+function contentDir(): string {
+  return path.join(process.cwd(), "content", "docs");
+}
 
 export type DocFrontmatter = {
   title: string;
@@ -35,7 +37,7 @@ function walk(dir: string): string[] {
 }
 
 function fileToSlug(file: string): string[] {
-  const rel = path.relative(CONTENT_DIR, file).replace(/\.mdx?$/, "");
+  const rel = path.relative(contentDir(), file).replace(/\.mdx?$/, "");
   const parts = rel.split(path.sep);
   if (parts[parts.length - 1] === "index") parts.pop();
   return parts;
@@ -61,7 +63,7 @@ function extractHeadings(content: string): DocHeading[] {
 }
 
 export function getAllDocs(): Doc[] {
-  return walk(CONTENT_DIR).map((file) => {
+  return walk(contentDir()).map((file) => {
     const raw = fs.readFileSync(file, "utf-8");
     const { data, content } = matter(raw);
     const slug = fileToSlug(file);

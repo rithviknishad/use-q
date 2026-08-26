@@ -5,6 +5,8 @@ description: Infinite/paginated queries with schema-driven pageParam, getNextPag
 
 `useInfiniteQ` is `useQ`'s big sibling for paginated routes. It only works with routes whose `RouteDefinition` declares a `pagination` block — calling it on a route without one throws immediately with a clear error message.
 
+The hook is a typed wrapper around TanStack's infinite queries — see [How Infinite Queries work](https://tkdodo.eu/blog/how-infinite-queries-work) for the cache shape (`{ pages, pageParams }`) and why `getNextPageParam` / `maxPages` behave the way they do.
+
 ## A paginated route
 
 ```ts

@@ -3,7 +3,7 @@ title: Optimistic updates
 description: Multi-target optimistic patterns — list insert, item update, list delete — with snapshot/rollback semantics.
 ---
 
-Optimistic updates let you reflect a mutation's effect in the UI _before_ the server confirms it. `useM`'s `optimisticUpdates` option makes the snapshot + rollback ceremony declarative.
+Optimistic updates let you reflect a mutation's effect in the UI _before_ the server confirms it. `useM`'s `optimisticUpdates` option makes the snapshot + rollback ceremony declarative — the lifecycle from [Concurrent Optimistic Updates](https://tkdodo.eu/blog/concurrent-optimistic-updates-in-react-query): cancel in-flight queries, snapshot, apply, rollback on error, invalidate on settle.
 
 Each entry names a **target** — either an exact route (`{ routeId, input? }`) or a tag list (`{ tags: [...] }`, resolved through the [TagRegistry](/docs/guides/tag-invalidation) to every currently-registered query) — and an **updater** that receives the previous cache value plus the mutation's `{ params, body }`.
 

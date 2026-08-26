@@ -7,9 +7,11 @@ By default `createApiClient` constructs its own `QueryClient`. Most apps are fin
 
 - You have **two or more `createApiClient` instances** for separate APIs and want them to share defaults / cache.
 - You need to set **`defaultOptions`** that all queries inherit.
-- You want to add **persistence** (`@tanstack/query-persist-client-core`).
+- You want to add **persistence** (`@tanstack/query-persist-client-core`) — [Offline React Query](https://tkdodo.eu/blog/offline-react-query).
 - You want **devtools** to inspect every query.
 - You're integrating into an existing TanStack Query setup.
+
+The `QueryClient` belongs in React context. Query _results_ do not — [React Query and React Context](https://tkdodo.eu/blog/react-query-and-react-context).
 
 ## The option
 

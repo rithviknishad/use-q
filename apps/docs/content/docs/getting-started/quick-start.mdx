@@ -153,7 +153,7 @@ export function NewPostForm({ facilityId }: { facilityId: string }) {
 }
 ```
 
-Because `createPost.invalidatesTags` matches `listPosts.tags`, the list refetches automatically once the mutation settles — no manual invalidation required.
+Because `createPost.invalidatesTags` matches `listPosts.tags`, the list refetches automatically once the mutation settles — no manual invalidation required. Form fields stay in the form; the mutation only submits ([React Query and Forms](https://tkdodo.eu/blog/react-query-and-forms)).
 </Steps>
 
 ## What just happened?
@@ -172,6 +172,7 @@ Want to make the create flow feel instant? Add optimistic updates — see the
 
 ## Next steps
 
+- [Practical React Query](/docs/getting-started/practical-react-query) — why these defaults, with links to TkDodo's series.
 - [Schema definition](/docs/getting-started/schema-definition) — a full tour of every `RouteDefinition` field.
 - [`useQ`](/docs/react/use-q) — every option, including `select`, `enabled`, and `refetchInterval`.
 - [`useM`](/docs/react/use-m) — optimistic updates and tag chaining.

@@ -3,7 +3,7 @@ title: useSuspenseQ
 description: Suspense-friendly query hook for use with <Suspense> and <ApiErrorBoundary>.
 ---
 
-`useSuspenseQ` is the suspense counterpart of [`useQ`](/docs/react/use-q) — same three-argument signature (`routeId`, `input?`, `options?`). It throws a promise while loading and an `ApiError` on failure, so the loading/error UI lives in the boundary instead of the component:
+`useSuspenseQ` is the suspense counterpart of [`useQ`](/docs/react/use-q) — same three-argument signature (`routeId`, `input?`, `options?`). It throws a promise while loading and an `ApiError` on failure, so the loading/error UI lives in the boundary instead of the component ([error handling with boundaries](https://tkdodo.eu/blog/react-query-error-handling), [status checks](https://tkdodo.eu/blog/status-checks-in-react-query)):
 
 ```tsx
 function PostList({ facilityId }: { facilityId: string }) {

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getAllDocs, getDoc } from "@/lib/docs";
+import { markdownHref } from "@/lib/llms-txt";
 import { findGroup } from "@/config/docs-nav";
 import { Mdx } from "@/components/docs/mdx";
 import { TableOfContents } from "@/components/docs/toc";
@@ -36,6 +37,11 @@ export async function generateMetadata({
   return {
     title: doc.frontmatter.title,
     description: doc.frontmatter.description,
+    alternates: {
+      types: {
+        "text/markdown": markdownHref(doc.href),
+      },
+    },
   };
 }
 

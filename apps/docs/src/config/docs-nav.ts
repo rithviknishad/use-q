@@ -14,6 +14,10 @@ export const docsNav: NavGroup[] = [
     title: "Getting Started",
     items: [
       { title: "Introduction", href: "/docs" },
+      {
+        title: "Practical React Query",
+        href: "/docs/getting-started/practical-react-query",
+      },
       { title: "Installation", href: "/docs/getting-started/installation" },
       { title: "Quick Start", href: "/docs/getting-started/quick-start" },
       {

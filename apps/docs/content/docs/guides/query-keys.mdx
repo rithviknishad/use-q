@@ -11,6 +11,8 @@ Every query produced by `useQ` / `useSuspenseQ` / `useInfiniteQ` lives at a key 
 
 That's it. Four positional segments — always four, even when there are no search params. Understanding this shape unlocks a lot of power, because TanStack Query's `invalidateQueries` / `getQueriesData` filters match keys by **prefix**.
 
+This is [Effective React Query Keys](https://tkdodo.eu/blog/effective-react-query-keys) as a default: array keys, coarse-to-fine, plus a factory (`queryKeys` on the client) so you never assemble them by hand.
+
 ## The four segments
 
 ### 1. `"api"` — namespace

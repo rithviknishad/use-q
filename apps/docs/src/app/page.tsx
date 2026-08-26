@@ -142,15 +142,22 @@ export default function Home() {
               className="mb-6 gap-1.5 rounded-full px-3 py-1 font-mono"
             >
               <Braces className="size-3.5" />
-              Built on TanStack Query v5
+              Opinionated TanStack Query v5
             </Badge>
             <h1 className="max-w-3xl text-4xl font-semibold tracking-tight sm:text-6xl">
               Your API schema is the source of truth
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground">
-              use-q turns one schema definition into fully typed, cache-aware
-              React hooks — invalidation, optimistic updates, and pagination
-              included — without giving up the power of TanStack Query.
+              use-q is an opinionated way to use TanStack Query: one schema
+              becomes typed hooks, hierarchical query keys, and automatic
+              invalidation —{" "}
+              <Link
+                href="/docs/getting-started/practical-react-query"
+                className="underline underline-offset-4 hover:text-foreground"
+              >
+                TkDodo&apos;s Practical React Query
+              </Link>{" "}
+              patterns, without giving up Query itself.
             </p>
             <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
               <Button asChild size="lg" className="rounded-squircle-lg">
@@ -205,8 +212,16 @@ export default function Home() {
                 Why use-q?
               </h2>
               <p className="mt-3 text-muted-foreground">
-                A thin, opinionated layer over TanStack Query that removes the
-                boilerplate of typed API clients — and nothing more.
+                TkDodo&apos;s Practical React Query series, as a thin
+                schema-driven layer over TanStack Query — query keys,
+                invalidation, and types you would otherwise wire by hand.{" "}
+                <Link
+                  href="/docs/getting-started/practical-react-query"
+                  className="underline underline-offset-4 hover:text-foreground"
+                >
+                  See the map
+                </Link>
+                .
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -261,6 +276,10 @@ export default function Home() {
             >
               rithviknishad/use-q
             </a>
+            {" · "}
+            <a href="/llms.txt" className="underline underline-offset-4 hover:text-foreground">
+              llms.txt
+            </a>
           </p>
           <p>
             Built on{" "}
@@ -271,6 +290,16 @@ export default function Home() {
               rel="noreferrer"
             >
               TanStack Query
+            </a>
+            {" · "}
+            opinions from{" "}
+            <a
+              href="https://tkdodo.eu/blog/practical-react-query"
+              className="underline underline-offset-4 hover:text-foreground"
+              target="_blank"
+              rel="noreferrer"
+            >
+              TkDodo
             </a>
           </p>
         </div>

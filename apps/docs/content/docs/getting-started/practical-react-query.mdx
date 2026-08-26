@@ -1,0 +1,79 @@
+---
+title: Practical React Query
+description: use-q is an opinionated way to use TanStack Query — TkDodo's Practical React Query series, encoded as a schema-driven client.
+---
+
+`use-q` is not a new data-fetching library. It is an **opinionated way to use [TanStack Query](https://tanstack.com/query/latest)**.
+
+The opinions come from Dominik Dorfmeister ([TkDodo](https://tkdodo.eu))'s [Practical React Query](https://tkdodo.eu/blog/practical-react-query) series: treat the cache as a server-state manager, never hand-write query keys, colocate a query abstraction, invalidate by describing relationships, transform with `select`, and keep TypeScript inference flowing from the query function.
+
+You still mount a `QueryClientProvider`. You still pass `staleTime`, `select`, and `enabled`. `use-q` makes those recommended patterns the path of least resistance so every app doesn't reinvent a query-key factory and a mutation-invalidation graph.
+
+<Callout type="info">
+
+This page is a map, not a restatement of the series. When you want the _why_ behind a default, follow the link to TkDodo. When you want the _how_ in this library, follow the use-q guide next to it.
+
+</Callout>
+
+## What use-q bakes in
+
+### A query abstraction, not a new mental model
+
+[Creating Query Abstractions](https://tkdodo.eu/blog/creating-query-abstractions) and [The Query Options API](https://tkdodo.eu/blog/the-query-options-api) argue for a single place that owns `queryKey` + `queryFn` (and the types). [`createApiClient`](/docs/react/create-api-client) is that place: one schema produces `useQ`, `useM`, `queryKeys`, and the fetcher. [React Query API Design — Lessons Learned](https://tkdodo.eu/blog/react-query-api-design-lessons-learned) is the longer argument for co-locating those.
+
+### Hierarchical query keys you never type twice
+
+[Effective React Query Keys](https://tkdodo.eu/blog/effective-react-query-keys): array keys, coarse-to-fine, plus a factory. use-q keys are always `["api", method, resolvedPath, searchParams]`. The client's `queryKeys` factory is the factory. The query function always receives TanStack's [`queryFn` context](https://tkdodo.eu/blog/leveraging-the-query-function-context) (including `signal`) — you don't thread it yourself. See [Query keys](/docs/guides/query-keys).
+
+### Automatic invalidation after mutations
+
+[Automatic Query Invalidation after Mutations](https://tkdodo.eu/blog/automatic-query-invalidation-after-mutations) is the problem `tags` / `invalidatesTags` solve. You describe which reads depend on which writes in the schema; `useM` invalidates matching queries in `onSettled`, as [Mastering Mutations](https://tkdodo.eu/blog/mastering-mutations-in-react-query) recommends — success _and_ error, so rollbacks still refetch the truth. See [Tag invalidation](/docs/guides/tag-invalidation).
+
+### Transforms and render isolation via `select`
+
+Don't map in the `queryFn`. Pass `select` to [`useQ`](/docs/react/use-q) — [data transformations](https://tkdodo.eu/blog/react-query-data-transformations), [render optimizations](https://tkdodo.eu/blog/react-query-render-optimizations), and [selectors, supercharged](https://tkdodo.eu/blog/react-query-selectors-supercharged).
+
+### Types inferred from the schema, not from generics
+
+[React Query and TypeScript](https://tkdodo.eu/blog/react-query-and-type-script) and [Type-safe React Query](https://tkdodo.eu/blog/type-safe-react-query): let the query function (here: the `RouteDefinition`) produce the types. You almost never pass generics to `useQ` / `useM`.
+
+### Errors and status as Query intended them
+
+[React Query Error Handling](https://tkdodo.eu/blog/react-query-error-handling) — handle errors where you have the context: globally (`onError` on the fetcher), per mutation, or with an error boundary ([`ApiErrorBoundary`](/docs/react/api-error-boundary) + [`useSuspenseQ`](/docs/react/use-suspense-q)). [Status Checks in React Query](https://tkdodo.eu/blog/status-checks-in-react-query) still apply: prefer `isPending` / `isError` / `isSuccess` over treating `isLoading` as the only gate.
+
+### Optimistic updates that cancel in-flight queries
+
+[`useM`](/docs/react/use-m)'s `optimisticUpdates` follow [Concurrent Optimistic Updates](https://tkdodo.eu/blog/concurrent-optimistic-updates-in-react-query): `cancelQueries`, snapshot, `setQueryData`, rollback on error, invalidate on settle. See [Optimistic updates](/docs/guides/optimistic-updates).
+
+### Seed the cache; don't copy server state into React state
+
+The cache _is_ the store for server data — [React Query as a State Manager](https://tkdodo.eu/blog/react-query-as-a-state-manager), [Thinking in React Query](https://tkdodo.eu/blog/thinking-in-react-query), [Why You Want React Query](https://tkdodo.eu/blog/why-you-want-react-query). Prefetch and hydrate with [`useQClient`](/docs/react/use-q-client) and [SSR & loaders](/docs/guides/ssr-and-loaders) ([seeding the query cache](https://tkdodo.eu/blog/seeding-the-query-cache), [placeholder vs initial data](https://tkdodo.eu/blog/placeholder-and-initial-data-in-react-query), [React Query meets React Router](https://tkdodo.eu/blog/react-query-meets-react-router)). Put a `QueryClient` in context, not query results — [React Query and React Context](https://tkdodo.eu/blog/react-query-and-react-context).
+
+## What we don't bake in
+
+The series covers more than a client library should own. use-q leaves these to your app — and to TkDodo:
+
+- **WebSockets** — [Using WebSockets with React Query](https://tkdodo.eu/blog/using-web-sockets-with-react-query). Query is a cache; push updates into it with `useQClient().setData` / `queryClient.setQueriesData`.
+- **Offline persistence** — [Offline React Query](https://tkdodo.eu/blog/offline-react-query). Pass your own `QueryClient` (see [Bring your own QueryClient](/docs/guides/byo-query-client)).
+- **Forms** — [React Query and Forms](https://tkdodo.eu/blog/react-query-and-forms). `useM` submits; form state stays in the form library.
+- **Testing** — [Testing React Query](https://tkdodo.eu/blog/testing-react-query). One `QueryClient` per test, `queries.retry: false`.
+- **Whether you need Query at all** — [You Might Not Need React Query](https://tkdodo.eu/blog/you-might-not-need-react-query). use-q is for server state that benefits from a cache.
+
+Two more posts are useful background without being APIs we wrap: [Inside React Query](https://tkdodo.eu/blog/inside-react-query) (how the observer model works) and [React Query — The Bad Parts](https://tkdodo.eu/blog/react-query-the-bad-parts) (query keys and invalidation boilerplate are two of the sharp edges this library exists to blunt). [TanStack Router and Query](https://tkdodo.eu/blog/tanstack-router-and-query) is the Router-specific integration; our [SSR & loaders](/docs/guides/ssr-and-loaders) guide shows the shared-cache pattern without duplicating that post.
+
+## Feature → post
+
+| In use-q | Read TkDodo |
+| --- | --- |
+| [`createApiClient`](/docs/react/create-api-client) | [#31 Creating Query Abstractions](https://tkdodo.eu/blog/creating-query-abstractions), [#24 The Query Options API](https://tkdodo.eu/blog/the-query-options-api) |
+| [Query keys](/docs/guides/query-keys) + `queryKeys` | [#8 Effective React Query Keys](https://tkdodo.eu/blog/effective-react-query-keys) |
+| [`tags` / `invalidatesTags`](/docs/guides/tag-invalidation) | [#25 Automatic Query Invalidation after Mutations](https://tkdodo.eu/blog/automatic-query-invalidation-after-mutations) |
+| [`useQ`](/docs/react/use-q) `select` | [#2 Data Transformations](https://tkdodo.eu/blog/react-query-data-transformations), [#30 Selectors, Supercharged](https://tkdodo.eu/blog/react-query-selectors-supercharged) |
+| `placeholderData` / `initialData` | [#9 Placeholder and Initial Data](https://tkdodo.eu/blog/placeholder-and-initial-data-in-react-query) |
+| [`useM`](/docs/react/use-m) + `onSettled` invalidation | [#12 Mastering Mutations](https://tkdodo.eu/blog/mastering-mutations-in-react-query) |
+| [Optimistic updates](/docs/guides/optimistic-updates) | [#29 Concurrent Optimistic Updates](https://tkdodo.eu/blog/concurrent-optimistic-updates-in-react-query) |
+| [`useInfiniteQ`](/docs/react/use-infinite-q) | [#26 How Infinite Queries work](https://tkdodo.eu/blog/how-infinite-queries-work) |
+| [`ApiErrorBoundary`](/docs/react/api-error-boundary) | [#11 Error Handling](https://tkdodo.eu/blog/react-query-error-handling) |
+| [SSR & loaders](/docs/guides/ssr-and-loaders) | [#16 React Query meets React Router](https://tkdodo.eu/blog/react-query-meets-react-router), [#17 Seeding the Query Cache](https://tkdodo.eu/blog/seeding-the-query-cache) |
+
+The series index — and every later part — lives on [Practical React Query (#1)](https://tkdodo.eu/blog/practical-react-query). There is also a [React Query FAQs](https://tkdodo.eu/blog/react-query-fa-qs) post for the questions that come up after the defaults click.

@@ -5,6 +5,8 @@ description: createApiClient(schema, options) — turn a schema into hooks, util
 
 `createApiClient` is the entry point for the React layer. Given a `Schema`, it returns a bundle of hooks and helpers that share one `QueryClient`, one fetcher, and one `TagRegistry`.
 
+This is the query abstraction TkDodo argues for in [Creating Query Abstractions](https://tkdodo.eu/blog/creating-query-abstractions) and [The Query Options API](https://tkdodo.eu/blog/the-query-options-api): one place owns `queryKey` + `queryFn` (and the types). You still use TanStack Query — you just don't re-create that layer in every app.
+
 ```ts
 import { createApiClient } from "@use-q/api-client-react";
 import { schema } from "./schema";

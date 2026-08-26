@@ -3,7 +3,7 @@ title: useQ
 description: Fetch a route as a typed query. select, enabled, staleTime, refetchInterval, and more.
 ---
 
-`useQ` is the read-side hook. It's a thin, typed wrapper around `useQuery` from TanStack Query — same return shape, same options, with parameters constrained to a schema route.
+`useQ` is the read-side hook. It's a thin, typed wrapper around `useQuery` from TanStack Query — same return shape, same options, with parameters constrained to a schema route. Types come from the `RouteDefinition`, not from `useQuery` generics ([React Query and TypeScript](https://tkdodo.eu/blog/react-query-and-type-script)).
 
 ```tsx
 const { data, isLoading, error, refetch } = useQ("listPosts", {
@@ -77,7 +77,7 @@ function PostDetail({ facilityId, postId }: { facilityId: string; postId?: strin
 
 ### `select` — project the response
 
-Avoid re-rendering components that only need a slice of the response. `select` is memoized by TanStack Query, so the result is referentially stable as long as the selector returns the same value.
+Avoid re-rendering components that only need a slice of the response. Transform with `select`, not inside the query function — that's [TkDodo's data-transformation](https://tkdodo.eu/blog/react-query-data-transformations) and [render-optimization](https://tkdodo.eu/blog/react-query-render-optimizations) advice, taken further in [selectors, supercharged](https://tkdodo.eu/blog/react-query-selectors-supercharged). `select` is memoized by TanStack Query, so the result is referentially stable as long as the selector returns the same value.
 
 ```tsx
 const titles = useQ(
@@ -157,7 +157,7 @@ useQ(
 
 ### `placeholderData`
 
-Render something while the real data loads:
+Render something while the real data loads. This does **not** put the value in the cache — unlike `initialData`. See [Placeholder and Initial Data](https://tkdodo.eu/blog/placeholder-and-initial-data-in-react-query) for when to use which.
 
 ```tsx
 useQ(
@@ -195,7 +195,7 @@ See [SSR & loaders](/docs/guides/ssr-and-loaders) for the full pattern.
 
 ## Returned shape
 
-`useQ` returns TanStack Query's `UseQueryResult` — `{ data, error, isLoading, isFetching, isError, isSuccess, refetch, … }`. Failures thrown by the fetcher are `ApiError` instances; use `isApiError(error)` to narrow before reading `status`, `data`, etc. See [Error handling](/docs/core/error-handling).
+`useQ` returns TanStack Query's `UseQueryResult` — `{ data, error, isPending, isLoading, isFetching, isError, isSuccess, refetch, … }`. Prefer `isPending` / `isError` / `isSuccess` over treating `isLoading` as the only gate ([status checks](https://tkdodo.eu/blog/status-checks-in-react-query)). Failures thrown by the fetcher are `ApiError` instances; use `isApiError(error)` to narrow before reading `status`, `data`, etc. See [Error handling](/docs/core/error-handling).
 
 ## Tag registration
 
@@ -214,7 +214,7 @@ This shape makes prefix invalidation natural. See [Query keys](/docs/guides/quer
 
 ## Cancellation
 
-`useQ` already passes an `AbortSignal` to the fetcher when the component unmounts or the key changes — a custom `fetch` implementation receives it via `RequestInit.signal`. Don't pass `signal` manually; let TanStack Query own it.
+`useQ` already passes an `AbortSignal` to the fetcher when the component unmounts or the key changes — that's [the query function context](https://tkdodo.eu/blog/leveraging-the-query-function-context) (`QueryFunctionContext.signal`). A custom `fetch` implementation receives it via `RequestInit.signal`. Don't pass `signal` manually; let TanStack Query own it.
 
 <Callout type="tip">
 

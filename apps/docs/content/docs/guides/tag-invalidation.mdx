@@ -5,7 +5,7 @@ description: TagRegistry lifecycle, static vs dynamic tags, schema invalidatesTa
 
 Tags are the high-level coupling between **reads** and **writes** in a `use-q` app. A read route says "I depend on these tags." A write route says "I invalidate these tags." When the write runs, every matching read refetches.
 
-The whole machine lives inside one `TagRegistry` per `createApiClient` instance.
+That's [automatic query invalidation after mutations](https://tkdodo.eu/blog/automatic-query-invalidation-after-mutations) — describe relationships in the schema instead of listing query keys on every `useM`. The whole machine lives inside one `TagRegistry` per `createApiClient` instance.
 
 ## The `TagRegistry`
 
@@ -153,7 +153,7 @@ Step 4 is the magic. Crucially, invalidation runs in `onSettled` — meaning it 
 
 <Callout type="tip">
 
-Why `onSettled` and not `onSuccess`? Because failures should refetch too. Running invalidation only on success would skip the refetch when the mutation errored, leaving the rolled-back cache marked fresh. At worst, `onSettled` refetches slightly too eagerly — which is correct behavior, never stale behavior.
+Why `onSettled` and not `onSuccess`? Because failures should refetch too — [Mastering Mutations](https://tkdodo.eu/blog/mastering-mutations-in-react-query). Running invalidation only on success would skip the refetch when the mutation errored, leaving the rolled-back cache marked fresh. At worst, `onSettled` refetches slightly too eagerly — which is correct behavior, never stale behavior.
 
 </Callout>
 
