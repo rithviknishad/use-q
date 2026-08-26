@@ -1,7 +1,7 @@
 {
   "name": "@use-q/api-client-react",
   "version": "0.1.0",
-  "description": "React + TanStack Query v5 hooks layer for use-q.",
+  "description": "Opinionated TanStack Query v5 hooks for use-q (useQ, useM, …).",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",

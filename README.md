@@ -1,6 +1,10 @@
 # use-q
 
-Type-safe API client monorepo built on top of TanStack Query v5.
+An opinionated, type-safe way to use [TanStack Query](https://tanstack.com/query) v5 — the patterns from [TkDodo's Practical React Query](https://tkdodo.eu/blog/practical-react-query) series, encoded as a schema-driven API client.
+
+You describe each endpoint once. use-q infers types, builds hierarchical query keys, and invalidates the right caches after mutations. You still own the `QueryClient`.
+
+Docs: [use-q.dev](https://use-q.dev) · [why these defaults](https://use-q.dev/docs/getting-started/practical-react-query)
 
 ## Packages
 
@@ -8,7 +12,7 @@ Type-safe API client monorepo built on top of TanStack Query v5.
 | ------- | ----------- |
 | [`@use-q/api-client`](./packages/api-client) | Zero-dependency, type-safe fetcher driven by an OpenAPI-derived schema. |
 | [`@use-q/api-client-codegen`](./packages/api-client-codegen) | CLI + programmatic API that turns an OpenAPI 3.x spec into a typed `schema.ts`. |
-| [`@use-q/api-client-react`](./packages/api-client-react) | React hooks layer (`useQ`, `useM`, `useInfiniteQ`, `useSuspenseQ`, …) bridging the core client to TanStack Query. |
+| [`@use-q/api-client-react`](./packages/api-client-react) | Opinionated TanStack Query v5 hooks (`useQ`, `useM`, `useInfiniteQ`, `useSuspenseQ`, …) following TkDodo's Practical React Query patterns. |
 
 ## Repo layout
 

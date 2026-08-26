@@ -4,6 +4,11 @@ dist
 .next
 out
 next-env.d.ts
+# Generated LLM-readable docs (apps/docs/scripts/generate-llms-txt.ts)
+apps/docs/public/llms.txt
+apps/docs/public/llms-full.txt
+apps/docs/public/docs.md
+apps/docs/public/docs/
 *.tsbuildinfo
 coverage
 *.log
