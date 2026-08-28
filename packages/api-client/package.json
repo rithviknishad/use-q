@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "Type-safe API client core for use-q.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rithviknishad/use-q.git",
+    "directory": "packages/api-client"
+  },
+  "homepage": "https://use-q.dev",
+  "bugs": {
+    "url": "https://github.com/rithviknishad/use-q/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
